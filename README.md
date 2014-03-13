@@ -1,4 +1,4 @@
 isocial
 =======
 
-A decentralized online social network levering from the Prometheus infrastructure.
+A Kademlia implementation over WebRTC.
