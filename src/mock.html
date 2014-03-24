@@ -12,7 +12,6 @@
 <div id="data"></div>
 
 <script type="text/javascript">
-
 var getClosestNode = function(keyAsString, rts, own){
     // rts  is the list of routes
     // own is the id of this node with its sha1 hex value
@@ -36,12 +35,36 @@ var getClosestNode = function(keyAsString, rts, own){
     return cand;
 };
 
-$(document).ready(function(){
+var getClosest = function(from, routes){
+    if(routes.length == 0){
+        return null;
+    }
+    var distance;
+    var route = routes[0];
+    var closest = route;
+    var minimum = from.xor(route.hex);
+    for(var i = 1; i < routes.length; i ++){
+        route = routes[i];
+        distance = from.xor(route.hex);
+        if(minimum.compareTo(distance) > 0){
+            minimum = distance;
+            closest = route;
+        }
+    }
+    return closest;
+};
+
+var getClosestForStorage = function (from, routes, own){
+    var allRoutes = routes.concat([own]);
+    return getClosest(from, allRoutes);
+};
+
+// $(document).ready(function(){ });
+(function(){
 
 var ownId = {id: 'feennouqu395p6fy', hex: new BigInteger("385d3b9ae58b21c34ca4c7ad3a8c15e32e3362c7", 16)};
 console.log("This node's id and hex: ");
 console.log("ID: " + ownId.id + " HEX: " + ownId.hex.toString(16));
-//
 
 var data = {
     name: "John Smith",
@@ -59,7 +82,18 @@ var node = getClosestNode(key, routes, ownId);
 console.log("Selected node: ");
 console.log(node.id + " : " + node.hex.toString(16));
 
-});
+// get the closest node to store the key with a new method
+var alt = getClosestForStorage(new BigInteger(key, 16), routes, ownId);
+console.log("Selected node with the other function: ");
+console.log(alt.id + " : " + alt.hex.toString(16));
+
+// get the closest node to store the key with a new method
+var neighbor = getClosest(ownId.hex, routes);
+console.log("Selected neighbor: ");
+console.log(neighbor.id + " : " + neighbor.hex.toString(16));
+
+
+})();
 </script>
 </body>
 </html>
