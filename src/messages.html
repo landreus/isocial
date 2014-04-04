@@ -1,0 +1,144 @@
+<html>
+<head>
+    <script type="text/javascript" src="lib/jquery-1.11.0.js"></script>
+    <script type="text/javascript" src="lib/sha1.js"></script>
+    <script type="text/javascript" src="lib/jsbn.js"></script>
+    <script type="text/javascript" src="lib/jsbn2.js"></script>
+    <script type="text/javascript" src="lib/peer.js"></script>
+</head>
+
+<body>
+
+<div>
+    Enter peer Id <input type="text" id="peerId" />
+    <input type="button" id="connectToPeer" value="Connect to peer"/>
+    <input type="button" id="sendHeartbeat" value="Send heartbeat"/>
+</div>
+
+<div id="data"></div>
+
+<script type="text/javascript">
+
+var getClosest = function(from, routes){
+    if(routes.length == 0){
+        return null;
+    }
+    var distance;
+    var route = routes[0];
+    var closest = route;
+    var minimum = from.xor(route.hex);
+    for(var i = 1; i < routes.length; i ++){
+        route = routes[i];
+        distance = from.xor(route.hex);
+        if(minimum.compareTo(distance) > 0){
+            minimum = distance;
+            closest = route;
+        }
+    }
+    return closest;
+};
+
+var getClosestForStorage = function (from, routes, own){
+    var allRoutes = routes.concat([own]);
+    return getClosest(from, allRoutes);
+};
+
+var receiveData = function(data){
+    console.log("data received..." + data);
+    var messg = JSON.parse(data);
+    // update the lastSeen attribute
+    console.log("Type of message received: " + messg.type);
+};
+
+var createRoute = function(conn){
+    return {
+        connection: conn,
+        peerId: conn.peer,
+        kadId: new BigInteger(Sha1.hash(conn.peer), 16),
+        lastSeen: Date.now()
+    };
+};
+
+$(document).ready(function(){
+    var peerId; // The peer js id of this peer
+    var routes = []; // an array of routes
+    routes.getRoute = function(peerId){
+        for(var i = 0; i < routes.length; i ++){
+            if(routes[i].peerId === peerId)
+                return i;
+        }
+        return -1;
+    };
+    // use the demo key to connecto to the peer.js server
+    peer = new Peer({ key: 'lwjd5qra8257b9', debug: 3 });
+    // enable the peer to get a key
+    // participate in the network
+    peer.on('open', function(id){
+        peerId = id;
+        console.log("This peer Id is: " + peerId);
+    });
+    // wait for a connection to this peer
+    // as we receive a connection we store it
+    peer.on('connection', function(conn){
+        // check if this peer is in the routes
+        console.log("Connection received...");
+        var route;
+        var index = routes.getRoute(conn.peer);
+        if(index === -1){
+            // if not, add it to the routes
+            route = createRoute(conn);
+            routes.push(route);
+            conn.on('data', receiveData);
+            console.log("Created a new route!");
+        } else {
+            // if it is, update the lastSeen property
+            // and update the connection object
+            route = routes[index];
+            route.lastSeen = Date.now();
+            route.connection = conn;
+        }
+    });
+    // when click connect we do the process of connecting
+    // to the specified peer and adding the data listener
+    $("#connectToPeer").click(function(){
+        var to = $("#peerId").val();
+        // check if we have this peer on the routes
+        // if it is it means there is already a connection open
+        if(routes.getRoute(to) > 0)
+            return void(0);
+        // if not then we try to connecto to it
+        var conn = peer.connect(to);
+        // called when there is an error in the connections
+        conn.on('error', function(err){
+            console.log("No peer found.");
+            // remove this route
+            
+            var index = rountes.getRoute(to);
+            if(index > 0){
+                routes.splice(index, 1);
+            }
+            
+        });
+        
+        var route = createRoute(conn);
+        routes.push(route);
+        console.log("connected!");
+        conn.on('data', receiveData);
+        
+    });
+    
+    $("#sendHeartbeat").click(function(){
+        var peerId = $("#peerId").val();
+        // find the open connection with the given peerId
+        var index = routes.getRoute(peerId);
+        if(index === -1){
+            console.log("No peer found with that Id");
+            return void(0);
+        }
+        var route = routes[index];
+        route.connection.send(JSON.stringify({type: "heartbeat"}));
+    });
+});
+</script>
+</body>
+</html>
