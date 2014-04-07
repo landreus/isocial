@@ -21,6 +21,7 @@
 
 // Global kadrtc object
 var kadrtc = {
+    // Use the demo key to connecto to the peer.js server.
     peer: new Peer({ key: 'lwjd5qra8257b9', debug: 3 }),
     localhost: null,
     routes: []
@@ -29,6 +30,11 @@ var kadrtc = {
 kadrtc.receiveData = function(data, route){
     if(data.type === "routes"){
         // add this routes to the routing table
+        for(var i = 0; i < data.routes.length; i ++){
+            if(data.routes[i] === kadrtc.localhost.peerId)
+                continue;
+            kadrtc.routes.add(data.routes[i]);
+        }
     } else if(data.type === "heartbeat"){
         // update the lastSeen attribute
         var now = new Date();
@@ -86,12 +92,30 @@ kadrtc.routes.getPeerIds = function(){
 // Add a route to the routing table.
 // Received a data connection.
 // Connections are kept open.
-kadrtc.routes.add = function(dataConnection){
+kadrtc.routes.add = function(peerId){
+    var index = kadrtc.routes.getRoute(peerId);
+    if(kadrtc.routes.getRoute(peerId) > -1)
+        return void(0);
+    var dataConnection = kadrtc.peer.connect(peerId);
+    // Remove the route if there is an error in thid dataConnection.
+    dataConnection.on('error', function(error){
+        console.log(error);
+    });
+    // Add this route to the routing table.
     kadrtc.routes.push({
         connection: dataConnection,
-        peerId: dataConnection.peer,
-        kadId: new BigInteger(Sha1.hash(dataConnection.peer), 16),
+        peerId: peerId,
+        kadId: new BigInteger(Sha1.hash(peerId), 16),
         lastSeen: new Date()
+    });
+    // Update the index of the new route.
+    index = kadrtc.routes.getRoute(peerId);
+    // Enable this connection to listen to data.
+    dataConnection.on('data', function(data){
+        kadrtc.receiveData(data, kadrtc.routes[index]);
+    });
+    dataConnection.on('open', function(data){
+        // console.log("connection open in action");
     });
 };
 // Remove a route from the routing table.
@@ -102,7 +126,6 @@ kadrtc.routes.remove = function(peerId){
         // Probably we should close the connection.
     }
 };
-
 // For debugging purposes we show the routing table.
 kadrtc.routes.print = function(){
     console.log("localhost: " + kadrtc.peer.id);
@@ -110,9 +133,25 @@ kadrtc.routes.print = function(){
         console.log(kadrtc.routes[i].peerId + "|" + kadrtc.routes[i].lastSeen.toISOString());
     }
 };
+// Function to send to all your peers a copy of your routing table every x seconds.
+kadrtc.routes.bcroutes = function(){
+    // console.log("* Broadcasting routing table.");
+    for(var i = 0; i < kadrtc.routes.length; i++){
+        kadrtc.routes[i].connection.send({type: "routes", routes: kadrtc.routes.getPeerIds()});
+    }
+};
+
+
+
 // Initialize the service
 kadrtc.initialize = function(){
-    // use the demo key to connecto to the peer.js server
+    // Set the timeout to broadcast the routing table.
+    setInterval(function(){
+        var timestamp = new Date();
+        console.log("* routes " + timestamp.toISOString());
+        kadrtc.routes.print();
+        kadrtc.routes.bcroutes();
+    },10000);
 };
 // Emitted when a connection to the PeerServer is established.
 kadrtc.peer.on('open', function(id){
@@ -123,21 +162,27 @@ kadrtc.peer.on('open', function(id){
 kadrtc.peer.on('connection', function(dataConnection){
     // Check if the peer is already in the routing table.
     var route;
-    var index = kadrtc.routes.getRoute(dataConnection.peer);
+    var peerId = dataConnection.peer;
+    var index = kadrtc.routes.getRoute(peerId);
     if(index === -1){
         //Add the route.
-        kadrtc.routes.add(dataConnection);
+        kadrtc.routes.push({
+            connection: dataConnection,
+            peerId: peerId,
+            kadId: new BigInteger(Sha1.hash(peerId), 16),
+            lastSeen: new Date()
+        });
         index = kadrtc.routes.getRoute(dataConnection.peer);
     } else {
         // Update the lastSeen property and update the connection object.
-        kadrtc.routes[index].lastSeen = Date.now();
+        kadrtc.routes[index].lastSeen = new Date();
         kadrtc.routes[index].connection = dataConnection;
     }
-    dataConnection.on('data', function(data){
+    kadrtc.routes[index].connection.on('data', function(data){
         kadrtc.receiveData(data, kadrtc.routes[index]);
     });
-    dataConnection.on('open', function(data){
-        dataConnection.send({type: "routes", routes: kadrtc.routes.getPeerIds()});
+    kadrtc.routes[index].connection.on('open', function(data){
+        kadrtc.routes[index].connection.send({type: "routes", routes: kadrtc.routes.getPeerIds()});
         console.log("connection open in listener");
     });
 });
@@ -154,30 +199,11 @@ kadrtc.peer.on('error', function(err){
 $(document).ready(function(){
     // Initialize.
     kadrtc.initialize();
-    
     $("#connectToPeer").click(function(){
         var peerId = $("#peerId").val();
-        var index = kadrtc.routes.getRoute(peerId);
-        if(kadrtc.routes.getRoute(peerId) > -1)
-            return void(0);
-        var dataConnection = kadrtc.peer.connect(peerId);
-        // Remove the route if there is an error in thid dataConnection.
-        dataConnection.on('error', function(error){
-            console.log(error);
-        });
-        // Add this route to the routing table.
-        kadrtc.routes.add(dataConnection);
-        index = kadrtc.routes.getRoute(peerId);
-        dataConnection.on('data', function(data){
-            kadrtc.receiveData(data, kadrtc.routes[index]);
-        });
-        dataConnection.on('open', function(data){
-            console.log("connection open in action");
-        });
+        kadrtc.routes.add(peerId);
     });
-    
     $("#sendHeartbeat").click(function(){
-        kadrtc.routes.print();
         if(kadrtc.routes.length === 0)
             return void(0);
         for(var i = 0; i < kadrtc.routes.length; i ++)
