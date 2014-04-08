@@ -1,47 +1,38 @@
-// Global kadrtc object
-var kadrtc = {
-    // Use the demo key to connecto to the peer.js server.
-    peer: new Peer({ key: 'lwjd5qra8257b9', debug: 3 }),
-    localhost: null,
-    routes: []
+// Global communication object.
+var kwcomm = {
+		messages: [],
+		exploring: false
 };
+// Routing table.
+var kwroutes = [];
+// "localhost" in the Kademlia DHT.
+kwroutes.localhost = null;
+// Use the demo key to connect to to the peer.js server.
+var kwpeer = new Peer({ key: 'lwjd5qra8257b9', debug: 3 });
 
-kadrtc.receiveData = function(data, route){
-    if(data.type === "routes"){
-        // add this routes to the routing table
-        for(var i = 0; i < data.routes.length; i ++){
-            if(data.routes[i] === kadrtc.localhost.peerId)
-                continue;
-            kadrtc.routes.add(data.routes[i]);
-        }
-    } else if(data.type === "heartbeat"){
-        // update the lastSeen attribute
-        var now = new Date();
-        console.log("heartbeat " + now.toISOString() + " from " + route.peerId);
-    }
-};
+// kwroutes
 
 // Return the index of the peer with the given peer.js id.
-kadrtc.routes.getRoute = function(peerId){
-    for(var i = 0; i < kadrtc.routes.length; i ++){
-        if(kadrtc.routes[i].peerId === peerId)
+kwroutes.getRoute = function(peerId){
+    for(var i = 0; i < kwroutes.length; i ++){
+        if(kwroutes[i].peerId === peerId)
             return i;
     }
     return -1;
 };
 // Return the closest route given a binary key or id.
-// The paremeter "from" is a BigInteger 16-bit long.
-kadrtc.routes.getClosest = function(from){
+// The parameter "from" is a BigInteger 16-bit long.
+kwroutes.getClosest = function(from){
     // Check if there are any routes.
-    if(kadrtc.routes.length == 0){
+    if(kwroutes.length == 0){
         return null;
     }
     var distance; // Store the xor distance in a BigInteger 16-bit long.
-    var route = kadrtc.routes[0]; // Extract the first route.
+    var route = kwroutes[0]; // Extract the first route.
     var closest = route; // Assume the first route is the closest.
     var minimum = from.xor(route.hex); // Compute the xor distance between the given value and the first route.
-    for(var i = 1; i < kadrtc.routes.length; i ++){ // Iterate.
-        route = kadrtc.routes[i]; // Extract the i-route.
+    for(var i = 1; i < kwroutes.length; i ++){ // Iterate.
+        route = kwroutes[i]; // Extract the i-route.
         distance = from.xor(route.hex); // Compute the distance from the given value to the i-route.
         if(minimum.compareTo(distance) > 0){ // Returns 1 if "distance" is smaller than "minimum".
             minimum = distance; // The minimum variable is updated.
@@ -51,125 +42,148 @@ kadrtc.routes.getClosest = function(from){
     return closest;
 };
 // Return the closest route to store data for a given key.
-// The paremeter "from" is a BigInteger 16-bit long.
-kadrtc.routes.getClosestForStorage = function (from){
-    var closest = kadrtc.routes.getClosest(from); // Assume the closest was returned.
-    var distance = from.xor(kadrtc.localhost.hex); // Compute the distance to this peer "localhost".
+// The parameter "from" is a BigInteger 16-bit long.
+kwroutes.getClosestForStorage = function (from){
+    var closest = kwroutes.getClosest(from); // Assume the closest was returned.
+    var distance = from.xor(kwroutes.localhost.hex); // Compute the distance to this peer "localhost".
     var minimum = from.xor(closest.hex); // Compute the xor distance peer that the function returned.
     if(minimum.compareTo(distance) > 0)
-        return kadrtc.localhost; // Store locally.
+        return kwroutes.localhost; // Store locally.
     return closest; // Store remotely.
 };
-// Return only the peerId from the routing table.
-kadrtc.routes.getPeerIds = function(){
+// Returns an array of peer identifiers.
+kwroutes.getRoutes = function(){
     var routes = [];
-    for(var i = 0; i < kadrtc.routes.length; i ++){
-        routes.push(kadrtc.routes[i].peerId);
+    for(var i = 0; i < kwroutes.length; i ++){
+        routes.push(kwroutes[i].peerId);
     }
     return routes;
 };
-// Add a route to the routing table.
-// Received a data connection.
-// Connections are kept open.
-kadrtc.routes.add = function(peerId){
-    var index = kadrtc.routes.getRoute(peerId);
-    if(kadrtc.routes.getRoute(peerId) > -1)
-        return void(0);
-    var dataConnection = kadrtc.peer.connect(peerId);
-    // Remove the route if there is an error in third dataConnection.
-    dataConnection.on('error', function(error){
-        console.log(error);
-    });
-    // Add this route to the routing table.
-    kadrtc.routes.push({
+// Create a route object.
+kwroutes.create = function(dataConnection){
+	var peerId = dataConnection.peer;
+	return {
         connection: dataConnection,
         peerId: peerId,
         kadId: new BigInteger(Sha1.hash(peerId), 16),
         lastSeen: new Date()
+    };
+};
+// Update a route.
+kwroutes.update = function(index, dataConnection) {
+    kwroutes[index].lastSeen = new Date();
+    kwroutes[index].connection = dataConnection;
+};
+// Add a route to the routing table given a peer identifier.
+kwroutes.add = function(peerId){
+    var index = kwroutes.getRoute(peerId);
+    if(kwroutes.getRoute(peerId) > -1 || peerId === kwroutes.localhost.peerId)
+        return void(0);
+    var dataConnection = kwpeer.connect(peerId);
+    // Remove the route if there is an error in third dataConnection.
+    dataConnection.on('error', function(error){
+        console.log("Error.....");
     });
+    // Add this route to the routing table.
+    kwroutes.push(kwroutes.create(dataConnection));
     // Update the index of the new route.
-    index = kadrtc.routes.getRoute(peerId);
+    index = kwroutes.getRoute(peerId);
     // Enable this connection to listen to data.
     dataConnection.on('data', function(data){
-        kadrtc.receiveData(data, kadrtc.routes[index]);
+        kwcomm.receiveData(data, kwroutes[index]);
     });
     dataConnection.on('open', function(data){
         // console.log("connection open in action");
     });
 };
 // Remove a route from the routing table.
-kadrtc.routes.remove = function(peerId){
-    var index = kadrtc.routes.getRoute(peerId);
+kwroutes.remove = function(peerId){
+    var index = kwroutes.getRoute(peerId);
     if(index > -1){
-        kadrtc.routes.splice(index, 1);
+        kwroutes.splice(index, 1);
         // Probably we should close the connection.
     }
 };
 // For debugging purposes we show the routing table.
-kadrtc.routes.print = function(){
-    console.log("localhost: " + kadrtc.peer.id);
-    for(var i = 0; i < kadrtc.routes.length; i ++){
-        console.log(kadrtc.routes[i].peerId + "|" + kadrtc.routes[i].lastSeen.toISOString());
-    }
-};
-// Function to send to all your peers a copy of your routing table every x seconds.
-kadrtc.routes.bcroutes = function(){
-    // console.log("* Broadcasting routing table.");
-    for(var i = 0; i < kadrtc.routes.length; i++){
-        kadrtc.routes[i].connection.send({type: "routes", routes: kadrtc.routes.getPeerIds()});
+kwroutes.print = function(){
+    console.log("localhost: " + kwpeer.id);
+    for(var i = 0; i < kwroutes.length; i ++){
+        console.log(kwroutes[i].peerId + "|" + kwroutes[i].lastSeen.toISOString());
     }
 };
 
-
+// kwcomm
 
 // Initialize the service
-kadrtc.initialize = function(){
+kwcomm.initialize = function(){
     // Set the timeout to broadcast the routing table.
     setInterval(function(){
         var timestamp = new Date();
         console.log("* routes " + timestamp.toISOString());
-        kadrtc.routes.print();
-        kadrtc.routes.bcroutes();
+        kwroutes.print();
+        kwcomm.broadcastRoutes();
     },10000);
 };
+//Function to send to all your peers a copy of your routing table every x seconds.
+kwcomm.broadcastRoutes = function(){
+    // console.log("* Broadcasting routing table.");
+    for(var i = 0; i < kwroutes.length; i++){
+        kwroutes[i].connection.send({type: "routes", routes: kwroutes.getRoutes()});
+    }
+};
+// Receive data.
+kwcomm.receiveData = function(data, route){
+    if(data.type === "routes"){
+    	kwcomm.messages = kwcomm.messages.concat(data.routes);
+		kwcomm.explore();
+    } else if(data.type === "heartbeat"){
+        // update the lastSeen attribute
+        var now = new Date();
+        console.log("heartbeat " + now.toISOString() + " from " + route.peerId);
+    }
+};
+// Explore for additional peers using the message stack.
+kwcomm.explore = function(){
+	// Empty the message queue.
+	var peerId;
+	while(kwcomm.messages.length > 0){
+		peerId = kwcomm.messages.pop();
+		kwroutes.add(peerId);
+	}
+};
+
+
+// kwpeer
+
 // Emitted when a connection to the PeerServer is established.
-kadrtc.peer.on('open', function(id){
+kwpeer.on('open', function(id){
     console.log("This peer Id is: " + id);
-    kadrtc.localhost = {peerId: id, hex: new BigInteger(Sha1.hash(id), 16)};
+    kwroutes.localhost = {peerId: id, hex: new BigInteger(Sha1.hash(id), 16)};
 });
 // Emitted when a new data connection is established from a remote peer.
-kadrtc.peer.on('connection', function(dataConnection){
+kwpeer.on('connection', function(dataConnection){
     // Check if the peer is already in the routing table.
     var route;
     var peerId = dataConnection.peer;
-    var index = kadrtc.routes.getRoute(peerId);
-    if(index === -1){
-        //Add the route.
-        kadrtc.routes.push({
-            connection: dataConnection,
-            peerId: peerId,
-            kadId: new BigInteger(Sha1.hash(peerId), 16),
-            lastSeen: new Date()
-        });
-        index = kadrtc.routes.getRoute(dataConnection.peer);
-    } else {
-        // Update the lastSeen property and update the connection object.
-        kadrtc.routes[index].lastSeen = new Date();
-        kadrtc.routes[index].connection = dataConnection;
-    }
-    kadrtc.routes[index].connection.on('data', function(data){
-        kadrtc.receiveData(data, kadrtc.routes[index]);
+    var index = kwroutes.getRoute(peerId);
+    index === -1 ? kwroutes.push(kwroutes.create(dataConnection)):
+			kwroutes.update(index, dataConnection);
+    // Update the index.
+    index = kwroutes.getRoute(dataConnection.peer);
+    // Listen for data.
+    kwroutes[index].connection.on('data', function(data){
+        kwcomm.receiveData(data, kwroutes[index]);
     });
-    kadrtc.routes[index].connection.on('open', function(data){
-        kadrtc.routes[index].connection.send({type: "routes", routes: kadrtc.routes.getPeerIds()});
-        console.log("connection open in listener");
+    // Send routes to the peer.
+    kwroutes[index].connection.on('open', function(data){
+        // kwroutes[index].connection.send({type: "routes", routes: kwroutes.getRoutes()});
     });
 });
 // Emitted when the peer is destroyed.
-kadrtc.peer.on('close', function(){
+kwpeer.on('close', function(){
     //
 });
 // Errors on the peer are almost always fatal and will destroy the peer.
-kadrtc.peer.on('error', function(err){
+kwpeer.on('error', function(err){
     //
 });

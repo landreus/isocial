@@ -21,16 +21,16 @@
 <script type="text/javascript">
 $(document).ready(function(){
     // Initialize.
-    kadrtc.initialize();
+    kwcomm.initialize();
     $("#connectToPeer").click(function(){
         var peerId = $("#peerId").val();
-        kadrtc.routes.add(peerId);
+        kwroutes.add(peerId);
     });
     $("#sendHeartbeat").click(function(){
-        if(kadrtc.routes.length === 0)
+        if(kwroutes.length === 0)
             return void(0);
-        for(var i = 0; i < kadrtc.routes.length; i ++)
-            kadrtc.routes[i].connection.send({type: "heartbeat"});
+        for(var i = 0; i < kwroutes.length; i ++)
+            kwroutes[i].connection.send({type: "heartbeat"});
     });
 });
 </script>
