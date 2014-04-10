@@ -134,8 +134,8 @@ kwcomm.broadcastRoutes = function(){
 // Receive data.
 kwcomm.receiveData = function(data, route){
     if(data.type === "routes"){
-    	kwcomm.messages = kwcomm.messages.concat(data.routes);
-		kwcomm.explore();
+        kwcomm.messages = kwcomm.messages.concat(data.routes);
+        kwcomm.explore();
     } else if(data.type === "heartbeat"){
         // update the lastSeen attribute
         var now = new Date();
