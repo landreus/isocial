@@ -1,12 +1,12 @@
 // Global communication object.
 var kwcomm = {
-		messages: [],
-		exploring: false
+		messages: []
 };
 // Routing table.
 var kwroutes = [];
 // "localhost" in the Kademlia DHT.
 kwroutes.localhost = null;
+kwroutes.newRoutes = [];
 // Use the demo key to connect to to the peer.js server.
 var kwpeer = new Peer({ key: 'lwjd5qra8257b9', debug: 3 });
 
@@ -117,12 +117,14 @@ kwroutes.print = function(){
 // Initialize the service
 kwcomm.initialize = function(){
     // Set the timeout to broadcast the routing table.
+    /* 
     setInterval(function(){
         var timestamp = new Date();
         console.log("* routes " + timestamp.toISOString());
         kwroutes.print();
         kwcomm.broadcastRoutes();
     },10000);
+    */ 
 };
 //Function to send to all your peers a copy of your routing table every x seconds.
 kwcomm.broadcastRoutes = function(){
@@ -134,24 +136,16 @@ kwcomm.broadcastRoutes = function(){
 // Receive data.
 kwcomm.receiveData = function(data, route){
     if(data.type === "routes"){
-        kwcomm.messages = kwcomm.messages.concat(data.routes);
-        kwcomm.explore();
+        // kwroutes.allRoutes = kwroutes.newRoutes.concat(data.routes);
+        for(var i = 0; i < data.routes.length; i ++){
+            route = kwroutes.add(data.routes[i]);
+        }
     } else if(data.type === "heartbeat"){
         // update the lastSeen attribute
         var now = new Date();
         console.log("heartbeat " + now.toISOString() + " from " + route.peerId);
     }
 };
-// Explore for additional peers using the message stack.
-kwcomm.explore = function(){
-	// Empty the message queue.
-	var peerId;
-	while(kwcomm.messages.length > 0){
-		peerId = kwcomm.messages.pop();
-		kwroutes.add(peerId);
-	}
-};
-
 
 // kwpeer
 
@@ -176,7 +170,7 @@ kwpeer.on('connection', function(dataConnection){
     });
     // Send routes to the peer.
     kwroutes[index].connection.on('open', function(data){
-        // kwroutes[index].connection.send({type: "routes", routes: kwroutes.getRoutes()});
+        kwroutes[index].connection.send({type: "routes", routes: kwroutes.getRoutes()});
     });
 });
 // Emitted when the peer is destroyed.
