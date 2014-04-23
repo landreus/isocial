@@ -85,7 +85,12 @@ kwroutes.add = function(peerId){
         console.log("Error.....");
     });
     // Add this route to the routing table.
-    kwroutes.push(kwroutes.create(dataConnection));
+    var route = kwroutes.create(dataConnection);
+    // Determine the k-bucket to store this route.
+    console.log(route.kadId.toString());
+    
+    //
+    kwroutes.push();
     // Update the index of the new route.
     index = kwroutes.getRoute(peerId);
     // Enable this connection to listen to data.
@@ -110,6 +115,17 @@ kwroutes.print = function(){
     for(var i = 0; i < kwroutes.length; i ++){
         console.log(kwroutes[i].peerId + "|" + kwroutes[i].lastSeen.toISOString());
     }
+};
+// Return the number of k-bucket given an xor distance
+// and the number of bits in the key or id.
+kwroutes.getBucketNumber = function(xor, length){
+    for(var i = length - 1; i >= 0; i --){
+        if(xor.testBit(i))
+            return i;
+    }
+    // none of the bits matched so
+    // this bucket contains only one element
+    return 0;
 };
 
 // kwcomm
