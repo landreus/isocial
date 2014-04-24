@@ -24,7 +24,8 @@ $(document).ready(function(){
     kwcomm.initialize();
     $("#connectToPeer").click(function(){
         var peerId = $("#peerId").val();
-        kwroutes.add(peerId);
+        // kwroutes.add(peerId);
+        kwbuckets.add(peerId);
     });
     $("#sendHeartbeat").click(function(){
         if(kwroutes.length === 0)
