@@ -25,7 +25,7 @@ KWBuckets.prototype.addToBucket = function(bucketNumber, route){
 
 //Return the number of k-bucket given an xor distance
 //and the number of bits in the key or id.
-KWBuckets.prototype.getBucketNumberForRoute = function(kadId){
+KWBuckets.prototype.getBucketNumber = function(kadId){
     var xor = this.kadIdOfThisPeer.xor(kadId);
     var length = this.size;
     for(var i = length - 1; i >= 0; i --){
@@ -40,7 +40,7 @@ KWBuckets.prototype.getBucketNumberForRoute = function(kadId){
 
 KWBuckets.prototype.findNode = function(peerId){
     var kadId = new BigInteger(Sha1.hash(peerId), 16);
-    var bucketNumber = this.getBucketNumberForRoute(kadId);
+    var bucketNumber = this.getBucketNumber(kadId);
     var bucket = this.getBucket(bucketNumber);
     if(bucket){
         var route;
@@ -60,17 +60,70 @@ var KWRoute = function(dataConnection, peerId, kadId, lastSeen){
     this.lastSeen = lastSeen;
 };
 
+// Router logic here
+var KWRouter = function(buckets, localhost){
+    this.buckets = buckets;
+    this.localhost = localhost;
+};
+
+//Return the closest route given a binary key or id.
+//The parameter "from" is a BigInteger 16-bit long.
+KWRouter.prototype.getNearestNode = function(kadId){
+    
+    var bucketNumber = this.buckets.getBucketNumber(kadId);
+    var bucket = this.buckets.getBucket(bucketNumber);
+    
+    if(!bucket){
+        return null;
+    }
+    
+    if(bucket.length > 0){
+        var distance; // Store the xor distance in a BigInteger 16-bit long.
+        var node = bucket[0]; // Extract the first route.
+        var nearest = node; // Assume the first route is the closest.
+        // Compute the xor distance between the given value and the first route.
+        var minimum = kadId.xor(node.kadId);
+        for(var i = 1; i < bucket.length; i ++){ // Iterate.
+            node = bucket[i]; // Extract the i-route.
+            // Compute the distance from the given value to the i-route.
+            distance = kadId.xor(node.kadId); 
+            // Returns 1 if "distance" is smaller than "minimum".
+            if(minimum.compareTo(distance) > 0){ 
+                minimum = distance; // The minimum variable is updated.
+                nearest = node; // The closest variable is updated
+            }
+        }
+        return nearest;
+    }
+    
+    return null;
+};
+
+//Return the closest route to store data for a given key.
+//The parameter "from" is a BigInteger 16-bit long.
+KWRouter.prototype.getNearestForStorage = function (kadId){
+    var closest = this.getClosestForStorage(kadId); // Assume the closest was returned.
+    var distance = kadId.xor(this.localhost.kadId); // Compute the distance to this peer "localhost".
+    var minimum = kadId.xor(closest.hex); // Compute the xor distance peer that the function returned.
+    if(minimum.compareTo(distance) > 0)
+       return this.localhost; // Store locally.
+    return closest; // Store remotely.
+};
+
+
 // Global communication object.
 var KWComm = function(){
     this.peer = new Peer({ key: 'lwjd5qra8257b9', debug: 3 });
     this.localhost = null;
     this.buckets = null;
     this.initialized = false;
+    this.router = null
     // Emitted when a connection to the PeerServer is established.
     var instance = this;
     this.peer.on('open', function(peerId){
         instance.localhost = new KWlocalhost(peerId);
         instance.buckets = new KWBuckets(160, instance.localhost.kadId);
+        instance.router = new KWRouter(instance.buckets, instance.localhost);
         console.log("This peer Id is: " + instance.localhost.peerId);
         instance.initialized = true;
     });
@@ -91,7 +144,7 @@ var KWComm = function(){
 
 KWComm.prototype.findNode = function(route){
     if(!this.buckets.findNode(route.peerId)){
-        var bucketNumber = this.buckets.getBucketNumberForRoute(route.kadId);
+        var bucketNumber = this.buckets.getBucketNumber(route.kadId);
         this.buckets.addToBucket(bucketNumber, route);
         return {
             message: 'RES find node',
@@ -164,7 +217,7 @@ KWComm.prototype.connectToPeer = function(peerId){
             new Date()
         );
         // TODO: check if the peer is already in the bucket
-        var bucketNumber = instance.buckets.getBucketNumberForRoute(route.kadId);
+        var bucketNumber = instance.buckets.getBucketNumber(route.kadId);
         instance.buckets.addToBucket(bucketNumber, route);
         // send a find peer message
         var ts = new Date();
@@ -195,56 +248,6 @@ KWComm.prototype.receiveConnection = function(dataConnection){
     });
 };
 
-
-
-// kwbuckets.size = 160; // Defined by Kademlia.
-
-/*
-kwbuckets.is = function(type, obj) {
-    var clas = Object.prototype.toString.call(obj).slice(8, -1);
-    return obj !== undefined && obj !== null && clas === type;
-};
-
-// Add a route to the corresponding k-bucket (wrapper function).
-
-kwbuckets.add = function(peer){
-    var dataConnection;
-    var route;
-    var sentConnectionRequest = kwbuckets.is('String', peer);
-    // If it is a string, connect to the peer.
-    // Otherwise it is a dataConnection object.
-    sentConnectionRequest?
-        dataConnection = kwpeer.connect(peer):
-        dataConnection = peer;
-    var peerId = dataConnection.peer;
-    var route = {
-        connection: dataConnection,
-        peerId: peerId,
-        kadId: new BigInteger(Sha1.hash(peerId), 16),
-        lastSeen: new Date()
-    };
-    dataConnection.on('error', function(error){
-        console.log("Error.....");
-    });
-    dataConnection.on('data', function(data){
-        // the peer that received the connection listens to the data
-        // and then closes the connection.
-        kwcomm.receiveMessage(data, route);
-    });
-    dataConnection.on('open', function(){
-        console.log("connection open...");
-        if(sentConnectionRequest){
-            // since this peer started the connection it has to send a 
-            // 'find peer' message with its new Id.
-            kwcomm.sendFindPeerMessage(dataConnection, route);
-        }
-    });
-    var bucketNumber = kwbuckets.getBucketNumber(route.kadId);
-    kwbuckets.addToBucket(route, bucketNumber);
-};
-*/
-
-
 /*
 // Routing table.
 var kwroutes = [];
@@ -260,38 +263,6 @@ kwroutes.getRoute = function(peerId){
             return i;
     }
     return -1;
-};
-// Return the closest route given a binary key or id.
-// The parameter "from" is a BigInteger 16-bit long.
-kwroutes.getClosest = function(from){
-    // Check if there are any routes.
-    if(kwroutes.length == 0){
-        return null;
-    }
-    var distance; // Store the xor distance in a BigInteger 16-bit long.
-    var route = kwroutes[0]; // Extract the first route.
-    var closest = route; // Assume the first route is the closest.
-    var minimum = from.xor(route.hex); // Compute the xor distance between the given value and the first route.
-    for(var i = 1; i < kwroutes.length; i ++){ // Iterate.
-        route = kwroutes[i]; // Extract the i-route.
-        distance = from.xor(route.hex); // Compute the distance from the given value to the i-route.
-        if(minimum.compareTo(distance) > 0){ // Returns 1 if "distance" is smaller than "minimum".
-            minimum = distance; // The minimum variable is updated.
-            closest = route; // The closest variable is updated
-        }
-    }
-    return closest;
-};
-// Return the closest route to store data for a given key.
-// The parameter "from" is a BigInteger 16-bit long.
-
-kwroutes.getClosestForStorage = function (from){
-    var closest = kwroutes.getClosest(from); // Assume the closest was returned.
-    var distance = from.xor(kwroutes.localhost.hex); // Compute the distance to this peer "localhost".
-    var minimum = from.xor(closest.hex); // Compute the xor distance peer that the function returned.
-    if(minimum.compareTo(distance) > 0)
-        return kwroutes.localhost; // Store locally.
-    return closest; // Store remotely.
 };
 // Returns an array of peer identifiers.
 kwroutes.getRoutes = function(){
@@ -357,67 +328,4 @@ kwroutes.print = function(){
         console.log(kwroutes[i].peerId + "|" + kwroutes[i].lastSeen.toISOString());
     }
 };
-
-
-// kwcomm
-
-// Initialize the service
-
-kwcomm.initialize = function(){
-    // Set the timeout to broadcast the routing table.
-};
-//Function to send to all your peers a copy of your routing table every x seconds.
-kwcomm.broadcastRoutes = function(){
-    // console.log("* Broadcasting routing table.");
-    for(var i = 0; i < kwroutes.length; i++){
-        kwroutes[i].connection.send({type: "routes", routes: kwroutes.getRoutes()});
-    }
-};
-
-// kwpeer
-
-//Use the demo key to connect to to the peer.js server.
-var kwpeer = new Peer({ key: 'lwjd5qra8257b9', debug: 3 });
-
-// Emitted when a connection to the PeerServer is established.
-kwpeer.on('open', function(id){
-    console.log("This peer Id is: " + id);
-    kwbuckets.localhost.peerId = id;
-    kwbuckets.localhost.kadId = new BigInteger(Sha1.hash(id), 16);
-});
-
-// Emitted when a new data connection is established from a remote peer.
-kwpeer.on('connection', function(dataConnection){
-    kwbuckets.add(dataConnection);
-});
-
-
-kwpeer.on('connection', function(dataConnection){
-    // Check if the peer is already in the routing table.
-    var route;
-    var peerId = dataConnection.peer;
-    var index = kwroutes.getRoute(peerId);
-    index === -1 ? kwroutes.push(kwroutes.create(dataConnection)):
-			kwroutes.update(index, dataConnection);
-    // Update the index.
-    index = kwroutes.getRoute(dataConnection.peer);
-    // Listen for data.
-    kwroutes[index].connection.on('data', function(data){
-        kwcomm.receiveData(data, kwroutes[index]);
-    });
-    // Send routes to the peer.
-    kwroutes[index].connection.on('open', function(data){
-        kwroutes[index].connection.send({type: "routes", routes: kwroutes.getRoutes()});
-    });
-});
-
-
-// Emitted when the peer is destroyed.
-kwpeer.on('close', function(){
-    //
-});
-// Errors on the peer are almost always fatal and will destroy the peer.
-kwpeer.on('error', function(err){
-    //
-});
 */
