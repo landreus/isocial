@@ -18,6 +18,8 @@ kwbuckets.is = function(type, obj) {
 kwbuckets.add = function(peer){
     var dataConnection;
     var route;
+    // If it is a string, connect to the peer.
+    // Otherwise it is a dataConnection object.
     kwbuckets.is('String', peer)?
         dataConnection = kwpeer.connect(peer):
         dataConnection = peer;

@@ -28,8 +28,7 @@ $(document).ready(function(){
         kwbuckets.add(peerId);
     });
     $("#sendHeartbeat").click(function(){
-        if(kwroutes.length === 0)
-            return void(0);
+        // Use k-buckets instead of the route array.
         for(var i = 0; i < kwroutes.length; i ++)
             kwroutes[i].connection.send({type: "heartbeat"});
     });
