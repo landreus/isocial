@@ -15,8 +15,8 @@ KWBuckets.prototype.getBucket = function(bucketNumber){
 };
 
 KWBuckets.prototype.addToBucket = function(bucketNumber, route){
+    // check that the number is valid
     if(bucketNumber < this.size && bucketNumber >= 0){
-        
         if(!this.buckets[bucketNumber])
             this.buckets[bucketNumber] = new Array();
         this.buckets[bucketNumber].push(route);
@@ -36,6 +36,21 @@ KWBuckets.prototype.getBucketNumberForRoute = function(kadId){
     // this bucket contains only one element
     // that is the last bucket
     return 0;
+};
+
+KWBuckets.prototype.findNode = function(peerId){
+    var kadId = new BigInteger(Sha1.hash(peerId), 16);
+    var bucketNumber = this.getBucketNumberForRoute(kadId);
+    var bucket = this.getBucket(bucketNumber);
+    if(bucket){
+        var route;
+        for(var i = 0; i < bucket.length; i ++){
+            route = bucket[i];
+            if(route.peerId === peerId)
+                return route;
+        }
+    }
+    else return null;
 };
 
 var KWRoute = function(dataConnection, peerId, kadId, lastSeen){
@@ -74,21 +89,53 @@ var KWComm = function(){
     });
 };
 
-KWComm.prototype.receiveMessage = function(data, route){
-    //Receive data.
-    console.log('data received from ' + route.peerId);
-    console.log(data);
+KWComm.prototype.findNode = function(route){
+    if(!this.buckets.findNode(route.peerId)){
+        var bucketNumber = this.buckets.getBucketNumberForRoute(route.kadId);
+        this.buckets.addToBucket(bucketNumber, route);
+        return {
+            message: 'RES find node',
+            body: {
+                node: route.peerId,
+                found: false
+            }
+        };
+    }
+    return {
+        message: 'RES find node',
+        body : {
+            node: route.peerId,
+            found: true
+        }
+    };
 };
 
-KWComm.prototype.sendMessageFindPeer = function(dataConnection, route){
-    var ts = new Date();
-    var timestamp = ts.toUTCString();
-    
-    dataConnection.send({
-        message: 'find peer',
-        data:  this.localhost.peerId,
-        timestamp: timestamp
-    });
+KWComm.prototype.findKey = function(){};
+
+KWComm.prototype.storeKey = function(){};
+
+KWComm.prototype.ping = function(){};
+
+KWComm.prototype.receiveMessage = function(data, route){
+    //Receive data.
+    var peerId = route.peerId;
+    console.log('data received from ' + peerId);
+    console.log(data);
+    var message = data.message;
+    var response;
+    switch(message){
+        case 'REQ find node':
+            var node = data.body;
+            response = this.findNode(route);
+            break;
+        case 'REQ find key':
+            break;
+        case 'REQ store key':
+            break;
+        case 'REQ ping':
+            break;
+    }
+    route.dataConnection.send(response);
 };
 
 KWComm.prototype.connectToPeer = function(peerId){
@@ -98,6 +145,17 @@ KWComm.prototype.connectToPeer = function(peerId){
     var dataConnection = this.peer.connect(peerId);
     var instance = this;
     dataConnection.on('open', function(){
+        dataConnection.on('data', function(message){
+            var body = message.body;
+            if(body.found === true){
+                // change id this one is taken
+                console.log('This id is taken');
+            }else{
+                console.log('This id is fine');
+            }
+            dataConnection.close();
+            
+        });
         // on success create the route and add it to the corresponding bucket
         var route = new KWRoute(
             dataConnection,
@@ -105,11 +163,17 @@ KWComm.prototype.connectToPeer = function(peerId){
             new BigInteger(Sha1.hash(peerId), 16),
             new Date()
         );
-        
+        // TODO: check if the peer is already in the bucket
         var bucketNumber = instance.buckets.getBucketNumberForRoute(route.kadId);
         instance.buckets.addToBucket(bucketNumber, route);
         // send a find peer message
-        instance.sendMessageFindPeer(dataConnection, route);
+        var ts = new Date();
+        var timestamp = ts.toUTCString();
+        dataConnection.send({
+            message: 'REQ find node',
+            body: instance.localhost.peerId,
+            timestamp: timestamp
+        });
     });
     // if it exists, do nothing.
     
