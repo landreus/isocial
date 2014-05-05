@@ -1,68 +1,187 @@
-// Global communication object.
-var kwcomm = {
-		messages: []
+var KWlocalhost = function(peerId){
+    this.peerId = peerId;
+    this.kadId = new BigInteger(Sha1.hash(this.peerId), 16);
 };
 
-// K-buckets are stored in this variable.
-var kwbuckets = new Array();
-
-kwbuckets.size = 160; // Defined by Kademlia.
-kwbuckets.localhost = {};
-
-kwbuckets.is = function(type, obj) {
-    var clas = Object.prototype.toString.call(obj).slice(8, -1);
-    return obj !== undefined && obj !== null && clas === type;
+//K-buckets are stored in this variable.
+var KWBuckets = function(size, kadId){
+    this.size = size;
+    this.buckets = new Array(size);
+    this.kadIdOfThisPeer = kadId;
 };
 
-// Add a route to the corresponding k-bucket (wrapper function).
-kwbuckets.add = function(peer){
-    var dataConnection;
-    var route;
-    // If it is a string, connect to the peer.
-    // Otherwise it is a dataConnection object.
-    kwbuckets.is('String', peer)?
-        dataConnection = kwpeer.connect(peer):
-        dataConnection = peer;
-    route = kwroutes.create(dataConnection);
-    dataConnection.on('error', function(error){
-        console.log("Error.....");
-    });
-    dataConnection.on('data', function(data){
-        kwcomm.receiveData(data, route);
-    });
-    dataConnection.on('open', function(){
-        console.log("connection open...");
-    });
-    var bucketNumber = kwbuckets.getBucketNumber(route.kadId);
-    kwbuckets.addToBucket(route, bucketNumber);
+KWBuckets.prototype.getBucket = function(bucketNumber){
+    return this.buckets[bucketNumber];
 };
 
-// Add a route to a k-bucket.
-kwbuckets.addToBucket = function(route, bucketNumber){
-    if(bucketNumber > kwbuckets.size || bucketNumber < -1){
-        return -1
+KWBuckets.prototype.addToBucket = function(bucketNumber, route){
+    if(bucketNumber < this.size && bucketNumber >= 0){
+        
+        if(!this.buckets[bucketNumber])
+            this.buckets[bucketNumber] = new Array();
+        this.buckets[bucketNumber].push(route);
     }
-    if(!kwbuckets[bucketNumber]){
-        kwbuckets[bucketNumber] = new Array();
-    }
-    kwbuckets[bucketNumber].push(route); // Only one peer per bucket...
-    return 0;
 };
 
 //Return the number of k-bucket given an xor distance
 //and the number of bits in the key or id.
-kwbuckets.getBucketNumber = function(kadId){
-    var xor = kwbuckets.localhost.kadId.xor(kadId);
-    var length = kwbuckets.size;
+KWBuckets.prototype.getBucketNumberForRoute = function(kadId){
+    var xor = this.kadIdOfThisPeer.xor(kadId);
+    var length = this.size;
     for(var i = length - 1; i >= 0; i --){
         if(xor.testBit(i))
             return i;
  }
     // none of the bits matched so
     // this bucket contains only one element
+    // that is the last bucket
     return 0;
 };
 
+var KWRoute = function(dataConnection, peerId, kadId, lastSeen){
+    this.dataConnection = dataConnection;
+    this.peerId = peerId;
+    this.kadId = kadId;
+    this.lastSeen = lastSeen;
+};
+
+// Global communication object.
+var KWComm = function(){
+    this.peer = new Peer({ key: 'lwjd5qra8257b9', debug: 3 });
+    this.localhost = null;
+    this.buckets = null;
+    this.initialized = false;
+    // Emitted when a connection to the PeerServer is established.
+    var instance = this;
+    this.peer.on('open', function(peerId){
+        instance.localhost = new KWlocalhost(peerId);
+        instance.buckets = new KWBuckets(160, instance.localhost.kadId);
+        console.log("This peer Id is: " + instance.localhost.peerId);
+        instance.initialized = true;
+    });
+
+    // Emitted when a new data connection is established from a remote peer to this one.
+    this.peer.on('connection', function(dataConnection){
+        instance.receiveConnection(dataConnection);
+    });
+    // Emitted when the peer is destroyed.
+    this.peer.on('close', function(){
+        //
+    });
+    // Errors on the peer are almost always fatal and will destroy the peer.
+    this.peer.on('error', function(err){
+        //
+    });
+};
+
+KWComm.prototype.receiveMessage = function(data, route){
+    //Receive data.
+    console.log('data received from ' + route.peerId);
+    console.log(data);
+};
+
+KWComm.prototype.sendMessageFindPeer = function(dataConnection, route){
+    var ts = new Date();
+    var timestamp = ts.toUTCString();
+    
+    dataConnection.send({
+        message: 'find peer',
+        data:  this.localhost.peerId,
+        timestamp: timestamp
+    });
+};
+
+KWComm.prototype.connectToPeer = function(peerId){
+    // we first check if this peer is already on the collection of known routes.
+    
+    // if not, then connect and send a 'find peer' message
+    var dataConnection = this.peer.connect(peerId);
+    var instance = this;
+    dataConnection.on('open', function(){
+        // on success create the route and add it to the corresponding bucket
+        var route = new KWRoute(
+            dataConnection,
+            peerId,
+            new BigInteger(Sha1.hash(peerId), 16),
+            new Date()
+        );
+        
+        var bucketNumber = instance.buckets.getBucketNumberForRoute(route.kadId);
+        instance.buckets.addToBucket(bucketNumber, route);
+        // send a find peer message
+        instance.sendMessageFindPeer(dataConnection, route);
+    });
+    // if it exists, do nothing.
+    
+};
+
+KWComm.prototype.receiveConnection = function(dataConnection){
+    // we add a listener to this dataConnection
+    var instance = this;
+    dataConnection.on('data', function(data){
+        // listen to the data received and act accordingly
+        var peerId = dataConnection.peer;
+        var route = new KWRoute(
+            dataConnection,
+            peerId,
+            new BigInteger(Sha1.hash(peerId), 16),
+            new Date()
+        );
+        instance.receiveMessage(data, route);
+    });
+};
+
+
+
+// kwbuckets.size = 160; // Defined by Kademlia.
+
+/*
+kwbuckets.is = function(type, obj) {
+    var clas = Object.prototype.toString.call(obj).slice(8, -1);
+    return obj !== undefined && obj !== null && clas === type;
+};
+
+// Add a route to the corresponding k-bucket (wrapper function).
+
+kwbuckets.add = function(peer){
+    var dataConnection;
+    var route;
+    var sentConnectionRequest = kwbuckets.is('String', peer);
+    // If it is a string, connect to the peer.
+    // Otherwise it is a dataConnection object.
+    sentConnectionRequest?
+        dataConnection = kwpeer.connect(peer):
+        dataConnection = peer;
+    var peerId = dataConnection.peer;
+    var route = {
+        connection: dataConnection,
+        peerId: peerId,
+        kadId: new BigInteger(Sha1.hash(peerId), 16),
+        lastSeen: new Date()
+    };
+    dataConnection.on('error', function(error){
+        console.log("Error.....");
+    });
+    dataConnection.on('data', function(data){
+        // the peer that received the connection listens to the data
+        // and then closes the connection.
+        kwcomm.receiveMessage(data, route);
+    });
+    dataConnection.on('open', function(){
+        console.log("connection open...");
+        if(sentConnectionRequest){
+            // since this peer started the connection it has to send a 
+            // 'find peer' message with its new Id.
+            kwcomm.sendFindPeerMessage(dataConnection, route);
+        }
+    });
+    var bucketNumber = kwbuckets.getBucketNumber(route.kadId);
+    kwbuckets.addToBucket(route, bucketNumber);
+};
+*/
+
+
+/*
 // Routing table.
 var kwroutes = [];
 // "localhost" in the Kademlia DHT.
@@ -101,6 +220,7 @@ kwroutes.getClosest = function(from){
 };
 // Return the closest route to store data for a given key.
 // The parameter "from" is a BigInteger 16-bit long.
+
 kwroutes.getClosestForStorage = function (from){
     var closest = kwroutes.getClosest(from); // Assume the closest was returned.
     var distance = from.xor(kwroutes.localhost.hex); // Compute the distance to this peer "localhost".
@@ -178,34 +298,15 @@ kwroutes.print = function(){
 // kwcomm
 
 // Initialize the service
+
 kwcomm.initialize = function(){
     // Set the timeout to broadcast the routing table.
-    /* 
-    setInterval(function(){
-        var timestamp = new Date();
-        console.log("* routes " + timestamp.toISOString());
-        kwroutes.print();
-        kwcomm.broadcastRoutes();
-    },10000);
-    */ 
 };
 //Function to send to all your peers a copy of your routing table every x seconds.
 kwcomm.broadcastRoutes = function(){
     // console.log("* Broadcasting routing table.");
     for(var i = 0; i < kwroutes.length; i++){
         kwroutes[i].connection.send({type: "routes", routes: kwroutes.getRoutes()});
-    }
-};
-// Receive data.
-kwcomm.receiveData = function(data, route){
-    if(data.type === "routes"){
-        for(var i = 0; i < data.routes.length; i ++){
-            // route = kwroutes.add(data.routes[i]);
-        }
-    } else if(data.type === "heartbeat"){
-        // update the lastSeen attribute
-        var now = new Date();
-        console.log("heartbeat " + now.toISOString() + " from " + route.peerId);
     }
 };
 
@@ -217,7 +318,8 @@ var kwpeer = new Peer({ key: 'lwjd5qra8257b9', debug: 3 });
 // Emitted when a connection to the PeerServer is established.
 kwpeer.on('open', function(id){
     console.log("This peer Id is: " + id);
-    kwbuckets.localhost = {peerId: id, kadId: new BigInteger(Sha1.hash(id), 16)};
+    kwbuckets.localhost.peerId = id;
+    kwbuckets.localhost.kadId = new BigInteger(Sha1.hash(id), 16);
 });
 
 // Emitted when a new data connection is established from a remote peer.
@@ -225,7 +327,7 @@ kwpeer.on('connection', function(dataConnection){
     kwbuckets.add(dataConnection);
 });
 
-/*
+
 kwpeer.on('connection', function(dataConnection){
     // Check if the peer is already in the routing table.
     var route;
@@ -244,7 +346,7 @@ kwpeer.on('connection', function(dataConnection){
         kwroutes[index].connection.send({type: "routes", routes: kwroutes.getRoutes()});
     });
 });
-*/
+
 
 // Emitted when the peer is destroyed.
 kwpeer.on('close', function(){
@@ -254,3 +356,4 @@ kwpeer.on('close', function(){
 kwpeer.on('error', function(err){
     //
 });
+*/

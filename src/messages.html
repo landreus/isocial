@@ -20,17 +20,16 @@
 
 <script type="text/javascript">
 $(document).ready(function(){
-    // Initialize.
-    kwcomm.initialize();
+    var kw = new KWComm();
+    
     $("#connectToPeer").click(function(){
-        var peerId = $("#peerId").val();
-        // kwroutes.add(peerId);
-        kwbuckets.add(peerId);
+        if(kw.initialized){
+            var peerId = $("#peerId").val();
+            kw.connectToPeer(peerId);
+        }
     });
     $("#sendHeartbeat").click(function(){
-        // Use k-buckets instead of the route array.
-        for(var i = 0; i < kwroutes.length; i ++)
-            kwroutes[i].connection.send({type: "heartbeat"});
+        // nothing for now...
     });
 });
 </script>
