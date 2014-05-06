@@ -13,7 +13,7 @@
 <div>
     Enter peer Id <input type="text" id="peerId" />
     <input type="button" id="connectToPeer" value="Connect to peer"/>
-    <input type="button" id="sendHeartbeat" value="Send heartbeat"/>
+    <input type="button" id="sendPing" value="Send ping"/>
 </div>
 
 <div id="data"></div>
@@ -28,8 +28,10 @@ $(document).ready(function(){
             kw.connectToPeer(peerId);
         }
     });
-    $("#sendHeartbeat").click(function(){
-        // nothing for now...
+    $("#sendPing").click(function(){
+        if(kw.initialized){
+            kw.sendPing();
+        }
     });
 });
 </script>

@@ -166,11 +166,12 @@ KWRouter.prototype.getNearestForStorage = function (kadId){
 
 // Global communication object.
 var KWComm = function(){
-    this.peer = new Peer({ key: 'lwjd5qra8257b9', debug: 3 });
+    this.peer = new Peer({ key: 'lwjd5qra8257b9', debug: 2 });
     this.localhost = null;
     this.buckets = null;
     this.initialized = false;
-    this.router = null
+    this.router = null;
+    this.periodicPing = null;
     // Emitted when a connection to the PeerServer is established.
     var instance = this;
     this.peer.on('open', function(peerId){
@@ -179,6 +180,9 @@ var KWComm = function(){
         instance.router = new KWRouter(instance.buckets, instance.localhost);
         console.log("This peer Id is: " + instance.localhost.peerId);
         instance.initialized = true;
+        instance.periodicPing = setInterval(function(){
+            instance.sendPing(instance);
+        }, 5000 + Math.ceil(Math.random() * 1500));
     });
 
     // Emitted when a new data connection is established from a remote peer to this one.
@@ -195,7 +199,7 @@ var KWComm = function(){
     });
 };
 
-KWComm.prototype.findNode = function(route){
+KWComm.prototype.findNodeResponse = function(route){
     var res = {
         message: 'RES find node',
         body: {
@@ -229,17 +233,18 @@ KWComm.prototype.receiveMessage = function(data, route){
     var response;
     switch(message){
         case 'REQ find node':
-            var node = data.body;
-            response = this.findNode(route);
+            response = this.findNodeResponse(route);
+            route.dataConnection.send(response);
             break;
         case 'REQ find key':
             break;
         case 'REQ store key':
             break;
         case 'REQ ping':
+            this.buckets.addToBucket(this.buckets.getBucketNumber(route.kadId), route);
+            route.dataConnection.close();
             break;
     }
-    route.dataConnection.send(response);
 };
 
 KWComm.prototype.connectToPeer = function(peerId){
@@ -299,6 +304,22 @@ KWComm.prototype.receiveConnection = function(dataConnection){
         );
         instance.receiveMessage(data, route);
     });
+};
+
+KWComm.prototype.sendPing = function(instance){
+    // get all the routes
+    var routes = instance.buckets.getNetworkSnapshot();
+    var route;
+    for(i in routes){
+        route = routes[i];
+        console.log(route);
+        instance.peer.connect(route.peerId)
+        .on('open', function(){
+            this.send({
+                message: 'REQ ping'
+            });
+        });
+    }
 };
 
 /*
