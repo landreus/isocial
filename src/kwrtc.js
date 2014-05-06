@@ -17,9 +17,25 @@ KWBuckets.prototype.getBucket = function(bucketNumber){
 KWBuckets.prototype.addToBucket = function(bucketNumber, route){
     // check that the number is valid
     if(bucketNumber < this.size && bucketNumber >= 0){
-        if(!this.buckets[bucketNumber])
+        if(!this.buckets[bucketNumber]){
             this.buckets[bucketNumber] = new Array();
-        this.buckets[bucketNumber].push(route);
+            this.buckets[bucketNumber].push(route);
+        } else {
+            var bucket = this.buckets[bucketNumber];
+            var oldRoute;
+            var exists = false;
+            for(var i = 0; i < bucket.length; i ++){
+                oldRoute = bucket[i];
+                if(oldRoute.peerId === route.peerId){
+                    exists = true;
+                    oldRoute.lastSeen = route.lastSeen;
+                    break;
+                }
+            }
+            if(!exists){
+                this.buckets[bucketNumber].push(route);
+            }
+        }
     }
 };
 
@@ -31,7 +47,7 @@ KWBuckets.prototype.getBucketNumber = function(kadId){
     for(var i = length - 1; i >= 0; i --){
         if(xor.testBit(i))
             return i;
- }
+    }
     // none of the bits matched so
     // this bucket contains only one element
     // that is the last bucket
@@ -49,8 +65,45 @@ KWBuckets.prototype.findNode = function(peerId){
             if(route.peerId === peerId)
                 return route;
         }
+        // TODO: forward this message to other nodes
+        // option a return these nodes and let the new node ask them
+        // option b keep the connection open and let this node ask them
     }
-    else return null;
+    return null;
+};
+
+KWBuckets.prototype.updateNetwork = function(snapshot){
+    var node;
+    var peerId;
+    var route;
+    var bucketNumber;
+    for(var i = 0; i < snapshot.length; i ++){
+        node = snapshot[i];
+        peerId = node.peerId;
+        route = new KWRoute(
+            null,
+            peerId,
+            new BigInteger(Sha1.hash(peerId), 16),
+            new Date(node.lastSeen)
+        );
+        bucketNumber = this.getBucketNumber(route.kadId);
+        this.addToBucket(bucketNumber, route);
+    }
+};
+
+KWBuckets.prototype.getNetworkSnapshot = function(){
+    var nodes = new Array();
+    var node; 
+    for (var i in this.buckets){
+        for (var j in this.buckets[i]){
+            node = this.buckets[i][j]; 
+            nodes.push({
+                peerId: node.peerId,
+                lastSeen: node.lastSeen.getTime()
+            });
+        }
+    }
+    return nodes;
 };
 
 var KWRoute = function(dataConnection, peerId, kadId, lastSeen){
@@ -143,24 +196,22 @@ var KWComm = function(){
 };
 
 KWComm.prototype.findNode = function(route){
+    var res = {
+        message: 'RES find node',
+        body: {
+            node: route.peerId,
+            found: false,
+            network: this.buckets.getNetworkSnapshot()
+        }
+    };
+    
     if(!this.buckets.findNode(route.peerId)){
         var bucketNumber = this.buckets.getBucketNumber(route.kadId);
         this.buckets.addToBucket(bucketNumber, route);
-        return {
-            message: 'RES find node',
-            body: {
-                node: route.peerId,
-                found: false
-            }
-        };
+        return res;
     }
-    return {
-        message: 'RES find node',
-        body : {
-            node: route.peerId,
-            found: true
-        }
-    };
+    res.body.found = true;
+    return res;
 };
 
 KWComm.prototype.findKey = function(){};
@@ -206,8 +257,10 @@ KWComm.prototype.connectToPeer = function(peerId){
             }else{
                 console.log('This id is fine');
             }
+            console.log(body.network);
+            // now we have to add this snapshot to our buckets.
+            instance.buckets.updateNetwork(body.network);
             dataConnection.close();
-            
         });
         // on success create the route and add it to the corresponding bucket
         var route = new KWRoute(
@@ -219,7 +272,7 @@ KWComm.prototype.connectToPeer = function(peerId){
         // TODO: check if the peer is already in the bucket
         var bucketNumber = instance.buckets.getBucketNumber(route.kadId);
         instance.buckets.addToBucket(bucketNumber, route);
-        // send a find peer message
+        // send a find node message
         var ts = new Date();
         var timestamp = ts.toUTCString();
         dataConnection.send({
