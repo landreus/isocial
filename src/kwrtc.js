@@ -172,6 +172,12 @@ var KWComm = function(){
     this.initialized = false;
     this.router = null;
     this.periodicPing = null;
+    this.storage = new KWStorage();
+    // validate that the storage is supported...
+    if(!this.storage.supported){
+        throw "Storage is not supported by your browser, consider upgrading it to a newer version.";
+    }
+    
     // Emitted when a connection to the PeerServer is established.
     var instance = this;
     this.peer.on('open', function(peerId){
@@ -320,6 +326,60 @@ KWComm.prototype.sendPing = function(instance){
             });
         });
     }
+};
+
+var KWStorage = function(){
+    this.supported = false;
+    if(typeof(Storage)!=="undefined") {
+        // Code for localStorage/sessionStorage.
+        this.supported = true;
+        if(this.test()){
+            console.log('KWStorage test passed!');
+        }
+    } else {
+        // Sorry! No Web Storage support..
+        alert('no support for web storage...');
+    }
+};
+
+KWStorage.prototype.generateKey = function(data){
+    return Sha1.hash(JSON.stringify(data));
+};
+
+KWStorage.prototype.put = function(key, data){
+    if(this.supported){
+        // serialize the data
+        localStorage.setItem(key, JSON.stringify(data));
+        return true;
+    }
+    return false;
+};
+
+KWStorage.prototype.get = function(key){
+    if(this.supported){
+        // evaluate the object
+        return localStorage.getItem(key) ?
+            JSON.parse(localStorage.getItem(key)):
+            null;
+    }
+    return false;
+};
+
+KWStorage.prototype.test = function(){
+    if(!this.supported)
+        return false;
+    var person = {
+            name: 'andres ledesma',
+            age: 27,
+            profession: 'researcher'
+        };
+        
+    var key = this.generateKey(person);
+    this.put(key, person);
+    // console.log(this.get(key));
+    if(person.name === this.get(key).name)
+        return true;
+    return false;
 };
 
 /*
