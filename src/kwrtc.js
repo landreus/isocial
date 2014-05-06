@@ -91,6 +91,22 @@ KWBuckets.prototype.updateNetwork = function(snapshot){
     }
 };
 
+KWBuckets.prototype.getAllPeers = function(){
+    var nodes = new Array();
+    var node; 
+    for (var i in this.buckets){
+        for (var j in this.buckets[i]){
+            node = this.buckets[i][j]; 
+            nodes.push({
+                peerId: node.peerId,
+                kadId: node.kadId,
+                lastSeen: node.lastSeen
+            });
+        }
+    }
+    return nodes;
+};
+
 KWBuckets.prototype.getNetworkSnapshot = function(){
     var nodes = new Array();
     var node; 
@@ -127,7 +143,10 @@ KWRouter.prototype.getNearestNode = function(kadId){
     var bucket = this.buckets.getBucket(bucketNumber);
     
     if(!bucket){
-        return null;
+        // this means that there is no bucket
+        // however we need to check among the rest of the peers
+        bucket = this.buckets.getAllPeers();
+        
     }
     
     if(bucket.length > 0){
@@ -148,19 +167,23 @@ KWRouter.prototype.getNearestNode = function(kadId){
         }
         return nearest;
     }
-    
+    // no peers present in the routing table
     return null;
 };
 
 //Return the closest route to store data for a given key.
 //The parameter "from" is a BigInteger 16-bit long.
 KWRouter.prototype.getNearestForStorage = function (kadId){
-    var closest = this.getClosestForStorage(kadId); // Assume the closest was returned.
+    var nearest = this.getNearestNode(kadId); // Assume the closest was returned.
+    if(!nearest)
+        return this.localhost;
     var distance = kadId.xor(this.localhost.kadId); // Compute the distance to this peer "localhost".
-    var minimum = kadId.xor(closest.hex); // Compute the xor distance peer that the function returned.
+    console.log('xor to localhost' + distance.toString(16));
+    var minimum = kadId.xor(nearest.kadId); // Compute the xor distance peer that the function returned.
+    console.log('xor to other    ' + minimum.toString(16));
     if(minimum.compareTo(distance) > 0)
        return this.localhost; // Store locally.
-    return closest; // Store remotely.
+    return nearest; // Store remotely.
 };
 
 
@@ -226,15 +249,27 @@ KWComm.prototype.findNodeResponse = function(route){
 
 KWComm.prototype.findKey = function(){};
 
-KWComm.prototype.storeKey = function(){};
+KWComm.prototype.storeKey = function(data){
+    console.log('Implementing this... ' + data);
+    var key = this.storage.generateKey(data);
+    console.log('key ' + key);
+    var kadId = new BigInteger(Sha1.hash(key), 16);
+    // determine where to store this
+    var route = this.router.getNearestForStorage(kadId);
+    if(route.peerId === this.localhost.peerId){
+        console.log('store locally...');
+    } else {
+        console.log('store remotely at ' + route.peerId);
+    }
+};
 
 KWComm.prototype.ping = function(){};
 
 KWComm.prototype.receiveMessage = function(data, route){
     //Receive data.
     var peerId = route.peerId;
-    console.log('data received from ' + peerId);
-    console.log(data);
+    // console.log('data received from ' + peerId);
+    // console.log(data);
     var message = data.message;
     var response;
     switch(message){
@@ -318,7 +353,7 @@ KWComm.prototype.sendPing = function(instance){
     var route;
     for(i in routes){
         route = routes[i];
-        console.log(route);
+        // console.log(route);
         instance.peer.connect(route.peerId)
         .on('open', function(){
             this.send({

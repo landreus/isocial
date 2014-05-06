@@ -16,6 +16,11 @@
     <input type="button" id="sendPing" value="Send ping"/>
 </div>
 
+<div>
+    Store data <input type="text" id="data" />
+    <input type="button" id="store" value="Store"/>
+</div>
+
 <div id="data"></div>
 
 <script type="text/javascript">
@@ -31,6 +36,12 @@ $(document).ready(function(){
     $("#sendPing").click(function(){
         if(kw.initialized){
             kw.sendPing();
+        }
+    });
+    $("#store").click(function(){
+        if(kw.initialized){
+            var data = $("#data").val();
+            kw.storeKey(data);
         }
     });
 });
