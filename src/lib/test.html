@@ -32,42 +32,34 @@
     });
     
     var instance = this;
-    this
-    .peer.on('connection', function(dataConnection){
-      instance._configureDataConnection(dataConnection, function(dataConnection){
-        // on 'open'
-      });
+    
+    this.peer.on('connection', function(dataConnection){
+      console.log('incoming connection from ' + dataConnection.peer);
+      instance._configureDataConnection(dataConnection);
+      
     });
 
   };
 
   Wrtc.prototype.connect = function(peerId, active){
-    var dataConnection = this.peer.connect(peerId);
-    this
-    ._configureDataConnection(dataConnection, function(dataConnection){
-      
-      var message = active?
-          {protocol: 'active connection'}:
-          {protocol: 'passive connection'};
-      
-      dataConnection.send(message);
-      
-    });
-  };
-  
-  Wrtc.prototype._configureDataConnection = function(dataConnection, onOpen){
-    
-    var instance = this;
+    var dataConnection = this.peer.connect(peerId);    
+    this._configureDataConnection(dataConnection);
     
     dataConnection.on('open', function(){
-      //
-      onOpen(this); // we need the dataConnection to send data
+      this.send({
+        protocol: 'new connection',
+        peer: this.provider.id
+      });
     });
-    
+
+  };
+  
+  Wrtc.prototype._configureDataConnection = function(dataConnection){
+    var instance = this;    
     dataConnection.on('data', function(message){
       //
       switch(message.protocol){
-          case 'active connection':
+          case 'new connection':
           
             // we need to return the closest id in the network
             // so that this new peer can that has just connected
@@ -80,12 +72,27 @@
             // first step is to check from my connections the closest
             // id to this new one
 
-            var nearestPeerId = instance._findNearest(this.peer);
-
+            var nearestPeerId = instance._findNearest(message.peer);
+            
             // check if this node is the nearest and if it is
             // then there is nothing else to do
-
-            if(nearestPeerId !== this.provider.id){
+            
+            if(nearestPeerId === this.provider.id){
+              
+              // check if a connection to this peer already exists
+              // if not, then connect to the peer
+              if(!this.provider.connections.hasOwnProperty(message.peer)){
+                
+                // we have reach this point because this was a forwarded message
+                // and no connection exists between this node and the
+                // one whose id is contained in the message.peer
+                var newDataConnection = this.provider.connect(message.peer);
+                // I do not think we need to trigger an event once the connection
+                // is open... But we can if we need.
+                instance._configureDataConnection(newDataConnection);
+              }
+              
+            } else{
 
               // if it is not, then we issue a request to the closest
               // and we send the id of this new peer so that the
@@ -96,36 +103,14 @@
               // and that is open
               
               this.provider.connections[nearestPeerId][0].send({
-                protocol: 'passive connection',
-                data: this.peer
+                protocol: 'new connection',
+                peer: message.peer
               });
 
             }
             break;
-          case 'passive connection':
-          
-            // we are here because we believe this node is closer
-            // to the node with the id contained in message.data
-            // than the node that contated this one.
-            
-            var nearestPeerId = instance._findNearest(message.data);
-            
-            if(nearestPeerId === this.provider.id){
-              // if indeed this is the nearest
-              // then this node has to open a connection
-              // the second argument is to specify that
-              // this is a passive connection meaning that
-              // we do not want any forwarding as we know that
-              // this is the closest node in the network
-              instance.connect(message.data, false);
-            } else{
-              // we continue to forward the request
-              this.provider.connections[nearestPeerId][0].send({
-                protocol: 'passive connection',
-                data: message.data
-              });
-            }
-            
+          case 'ping':
+            console.log('ping from ' + message.peer);
             break;
       }
     });
@@ -158,7 +143,11 @@
       if(this.peer.connections[peerId].length > 0){
         for(var con in this.peer.connections[peerId]){
           if(this.peer.connections[peerId][con].open){
-            this.peer.connections[peerId][con].send({ping: this.peer.id});
+            console.log('pinging to ... ' + peerId);
+            this.peer.connections[peerId][con].send({
+              protocol: 'ping',
+              peer: this.peer.id
+            });
             break;
           }
         }
@@ -166,9 +155,9 @@
     }
   };
   
-  Wrtc.prototype._findNearest = function(string){
+  Wrtc.prototype._findNearest = function(peerId0){
     var nearestPeerId;
-    var sha0 = Sha1.hash(string);
+    var sha0 = Sha1.hash(peerId0);
     var kad0 = new BigInteger(sha0, 16);
     var sha1;
     var kad1, distance, min;
@@ -179,6 +168,9 @@
     min = kad0.xor(kad1);
     
     for(peerId in this.peer.connections){
+      if(peerId0 === peerId){
+        continue;
+      }
       sha1 = Sha1.hash(peerId);
       kad1 = new BigInteger(sha1, 16);
       distance = kad0.xor(kad1);
@@ -205,12 +197,12 @@
     $("#sendPing").click(function(){
       
       //console.log('commence pinging...');
-      // wrtc.ping();
-      
+      wrtc.ping();
+      /*
       var interval = setInterval(function(){
         wrtc.ping();
       }, 3000);
-      
+      */
     });
   });
 </script>
