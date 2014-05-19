@@ -11,16 +11,16 @@
 
 <div>
   Enter peer Id <input type="text" id="peerId" />
-  <input type="button" id="connectToPeer" value="Connect to peer"/>
+  <input type="button" id="connectToPeer" value="Connect to peer" size="25"/>
   <input type="button" id="sendPing" value="Send ping"/>
 </div>
 
   <div>
-  Store data <input type="text" id="data" />
+  Store data <input type="text" id="data" size="55"/>
   <input type="button" id="store" value="Store"/>
 </div>
 <div>
-  Enter key <input type="text" id="key" />
+  Enter key <input type="text" id="key" size="55"/>
   <input type="button" id="findKey" value="Find key"/>
 </div>
   
@@ -352,31 +352,6 @@
     return nearestPeerId;
   };
   
-  /*
-  Wrtc.prototype._isInBetween = function(peerId0){
-    //
-    var sha0 = Sha1.hash(peerId0);
-    var kad0 = new BigInteger(sha0, 16);
-    var sha1;
-    var kad1;
-    var smallerThan = false;
-    var biggerThan  = false;
-    
-    for(peerId in this.peer.connections){
-      sha1 = Sha1.hash(peerId);
-      kad1 = new BigInteger(sha1, 16);
-      if(kad0.compareTo(kad1) > 0){
-        // the new peerId is bigger
-        biggerThan = true;
-      } else if(kad0.compareTo(kad1) < 0){
-        // the new peerId is smaller
-        smallerThan = true;
-      }
-    }
-    return smallerThan && biggerThan;
-  };
-  */
-  
   Wrtc.prototype._compareTo = function(peerId0, peerId1){
     /*
      * Compare peerId0 to peerId1
@@ -436,6 +411,7 @@
         hello: 'world'
       };
       var key = wrtc.generateKey(obj);
+      console.log(key);
       wrtc.store(key, obj);
     });
     $('#findKey').click(function(){
