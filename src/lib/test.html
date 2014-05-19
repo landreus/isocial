@@ -10,22 +10,27 @@
 <body>
 
 <div>
-    Enter peer Id <input type="text" id="peerId" />
-    <input type="button" id="connectToPeer" value="Connect to peer"/>
-    <input type="button" id="sendPing" value="Send ping"/>
+  Enter peer Id <input type="text" id="peerId" />
+  <input type="button" id="connectToPeer" value="Connect to peer"/>
+  <input type="button" id="sendPing" value="Send ping"/>
 </div>
 
+  <div>
+  Store data <input type="text" id="data" />
+  <input type="button" id="store" value="Store"/>
+</div>
 <div>
-    Store data <input type="text" id="data" />
-    <input type="button" id="store" value="Store"/>
+  Enter key <input type="text" id="key" />
+  <input type="button" id="findKey" value="Find key"/>
 </div>
-
+  
 <div id="data"></div>
 
 <script type="text/javascript">
 
   var Wrtc = function(){
     this.peer = new Peer({ key: 'lwjd5qra8257b9', debug: 2 });
+    this.callStack = [];
 
     this.peer.on('open', function(peerId){
       console.log(peerId);
@@ -34,33 +39,165 @@
     var instance = this;
     
     this.peer.on('connection', function(dataConnection){
-      console.log('incoming connection from ' + dataConnection.peer);
+      console.log('---> incoming connection from ' + dataConnection.peer);
       instance._configureDataConnection(dataConnection);
       
     });
 
   };
+  
+  Wrtc.protocols = {
+    NEW_CONNECTION: 'new connection',
+    CONNECT_TO: 'connect to',
+    PING: 'ping',
+    STORE: 'store',
+    FIND_KEY_REQ: 'find key request',
+    FIND_KEY_RES: 'find key response',
+    FIND_NODE: 'find node'
+  };
 
-  Wrtc.prototype.connect = function(peerId, active){
+  Wrtc.prototype.createConnection = function(peerId, active){
     var dataConnection = this.peer.connect(peerId);    
     this._configureDataConnection(dataConnection);
     
     dataConnection.on('open', function(){
+      console.log('connectig to ' + this.peer + ' ---> ');
       this.send({
-        protocol: 'new connection',
+        protocol: Wrtc.protocols.NEW_CONNECTION,
         peer: this.provider.id
       });
     });
 
   };
   
+  Wrtc.prototype._forwardStoreRequest = function(key, value){
+    return this._forwardRequest(key, Object.keys(this.peer.connections), {
+      protocol: Wrtc.protocols.STORE,
+      key: key,
+      value: value
+    });
+  };
+  
+  Wrtc.prototype._forwardConnectionRequest = function(newPeerId){
+    return this._forwardRequest(Sha1.hash(newPeerId), Object.keys(this.peer.connections), {
+      protocol: Wrtc.protocols.NEW_CONNECTION,
+      peer: newPeerId
+    });
+  };
+  
+  Wrtc.prototype._forwardRequest = function(shaId, listOfOpenConnections, data){
+    if(listOfOpenConnections.length > 0){
+      var nearestPeerId = this._findNearest(shaId, listOfOpenConnections.concat([this.peer.id]));
+      if(this.peer.id !== nearestPeerId){
+        this._send(nearestPeerId, data);
+        return true;
+      }
+      // no need to forward
+      // this peer is the closest one
+    }
+    // no request forwarding
+    return false;
+  };
+  
+  Wrtc.prototype._forwardFindKeyRequest = function(key, peer){
+    return this._forwardRequest(key, Object.keys(this.peer.connections), {
+      protocol: Wrtc.protocols.FIND_KEY_REQ,
+      key: key,
+      peer: peer
+    });
+  };
+  
+  Wrtc.prototype.get = function(key, callback){
+    // high level function that checks first in the local storage 
+    // and if the data is not here then issues a request to the other nodes
+    var value = this._getLocally(key);
+    if(value){
+      var data = {
+        key: key,
+        value: value
+      };
+      callback(data);
+    } else{
+      this.callStack[key] = callback;
+      if(!this._forwardFindKeyRequest(key, this.peer.id)){
+        console.log('data not found with key ' + key);
+      }
+    }
+  };
+  
+  Wrtc.prototype._connect = function(newPeerId, onConnectFunction){
+    if(!this.peer.connections.hasOwnProperty(newPeerId)){
+      var newDataConnection = this.peer.connect(newPeerId);
+      // here we can redistribute the keys of this peer with the new one
+      newDataConnection.on('open', onConnectFunction);
+      this._configureDataConnection(newDataConnection);
+    }
+  };
+  
+  Wrtc.prototype._forwardConnectionToPeerRequest = function(newPeerId){
+    var listOfOpenConnections = Object.keys(this.peer.connections);
+    if(listOfOpenConnections.length > 1){
+      // we need to know if the new peer is between this one and another one
+      var nearestPeerId = this._findNearest(Sha1.hash(newPeerId), listOfOpenConnections); // exclude the peer id of this node
+      var isAnEnd = 
+        (this._compareTo(this.peer.id, newPeerId) < 0 && this._compareTo(nearestPeerId, newPeerId) < 0) || 
+        (this._compareTo(this.peer.id, newPeerId) > 0 && this._compareTo(nearestPeerId, newPeerId) > 0);
+      // the new peer might be the last one in the network
+      // nearestPeer ------> thisPeer
+      // nearestPeer ------> thisPeer ------> newPeer
+      // if it is not then we need to proceed accordingly
+      if(!isAnEnd){
+        console.log('notify another peer to connect to the new one');
+        // then the nearestPeerId needs to connect to the new node as well.
+        // thisPeer ---------------> nearestPeer
+        // thisPeer --->newPeer<---- nearestPeer
+        this._send(nearestPeerId, {
+          protocol: Wrtc.protocols.CONNECT_TO,
+          peer: newPeerId
+        });
+        return true;
+      }
+    }
+    return false;
+  };
+  
+  Wrtc.prototype._deliverRequest = function(key, value, peerId){
+    var data;
+    var message;
+    if(this.peer.id === peerId){
+      // this is the peer that requested the key
+      data = {
+        key: key,
+        value: value
+      };
+      // take the function from the stack and call it with the data oject
+      this.callStack[key](data);
+      delete this.callStack[key];
+    } else {
+      // build the message
+      message = {
+        protocol: Wrtc.protocols.FIND_KEY_RES,
+        key: key,
+        value: value,
+        peer: peerId
+      };
+      // try to send the data to the peerId if it is connected directly to this peer
+      if(!this._send(peerId, message)){
+        // this peer is not connected to peerId 
+        // keep forwarding the response to the closest node
+        this._forwardRequest(peerId, Object.keys(this.peer.connections), message);
+      }
+    }
+  };
+  
   Wrtc.prototype._configureDataConnection = function(dataConnection){
     var instance = this;    
     dataConnection.on('data', function(message){
       //
+      console.log('message type ' + message.protocol);
       switch(message.protocol){
-          case 'new connection':
-          
+          case Wrtc.protocols.NEW_CONNECTION:
+            console.log(message.protocol);
             // we need to return the closest id in the network
             // so that this new peer can that has just connected
             // to us can then connect to it and give us a
@@ -68,49 +205,44 @@
             // some sense of order
             // problem: issue a nested request and keep track of it
             // so that we can return the correct result
-
-            // first step is to check from my connections the closest
-            // id to this new one
-
-            var nearestPeerId = instance._findNearest(message.peer);
-            
-            // check if this node is the nearest and if it is
-            // then there is nothing else to do
-            
-            if(nearestPeerId === this.provider.id){
-              
+            if(!instance._forwardConnectionRequest(message.peer)){
+              // here we know that this peer is the closest to the new one
               // check if a connection to this peer already exists
               // if not, then connect to the peer
-              if(!this.provider.connections.hasOwnProperty(message.peer)){
-                
-                // we have reach this point because this was a forwarded message
-                // and no connection exists between this node and the
-                // one whose id is contained in the message.peer
-                var newDataConnection = this.provider.connect(message.peer);
-                // I do not think we need to trigger an event once the connection
-                // is open... But we can if we need.
-                instance._configureDataConnection(newDataConnection);
-              }
-              
-            } else{
-
-              // if it is not, then we issue a request to the closest
-              // and we send the id of this new peer so that the
-              // closest can connect back to it or continue forwarding
-              // the message
-
-              // TODO: we should check that this connection exists
-              // and that is open
-              
-              this.provider.connections[nearestPeerId][0].send({
-                protocol: 'new connection',
-                peer: message.peer
+              instance._connect(message.peer, function(){
+                // TODO
+                // redistribute the keys here
               });
-
+              instance._forwardConnectionToPeerRequest(message.peer);
             }
             break;
-          case 'ping':
+          case Wrtc.protocols.CONNECT_TO:
+            
+            instance._connect(message.peer, function(){
+              // TODO
+              // redistribute the keys here
+            });
+            break;
+          case Wrtc.protocols.PING:
             console.log('ping from ' + message.peer);
+            break;
+          case Wrtc.protocols.STORE:
+            instance.store(message.key, message.value);
+            break;
+          case Wrtc.protocols.FIND_KEY_REQ:
+            // check if this node has the key
+            // if it does then send a response message
+            var value = instance._getLocally(message.key);
+            if(value){
+              // then send this to the message.peer
+              instance._deliverRequest(message.key, value, message.peer);
+            } else{
+              // forward the request to the open connections of this peer
+              instance._forwardFindKeyRequest(message.key, message.peer)
+            }
+            break;
+          case Wrtc.protocols.FIND_KEY_RES:
+            instance._deliverRequest(message.key, message.value, message.peer);
             break;
       }
     });
@@ -120,7 +252,7 @@
     });
     
     dataConnection.on('close', function(){
-      //
+      // try to clean as much memory as possible
       var peerId = this.peer;
       if(this.provider.connections.hasOwnProperty(peerId)){
         this.removeAllListeners();
@@ -138,49 +270,142 @@
     
   };
   
-  Wrtc.prototype.ping = function(){
-    for(var peerId in this.peer.connections){
-      if(this.peer.connections[peerId].length > 0){
-        for(var con in this.peer.connections[peerId]){
-          if(this.peer.connections[peerId][con].open){
-            console.log('pinging to ... ' + peerId);
-            this.peer.connections[peerId][con].send({
-              protocol: 'ping',
-              peer: this.peer.id
-            });
-            break;
-          }
-        }
-      }
+  // exposed function
+  // well... everything is exposed but if it starts with an '_'
+  // it means you should not use it outside the class :)
+  Wrtc.prototype.store = function(key, value){
+    // We are here because a peer forwarded a store key value pair here.
+    // Check if we are the closest peer and forward the request if this is not the case.
+    if(!this._forwardStoreRequest(key, value)){
+      // if we reach this point it means that we have to store the key value pair in this peer
+      this._storeLocally(key, value);
     }
   };
   
-  Wrtc.prototype._findNearest = function(peerId0){
+  Wrtc.prototype.ping = function(){
+    var data = {
+      protocol: 'ping',
+      peer: this.peer.id
+    };
+    for(var peerId in this.peer.connections){
+      this._send(peerId, data);
+    }
+  };
+  
+  Wrtc.prototype._getActiveConnection = function(peerId){
+    var dataConnection;
+    if(this.peer.connections[peerId] && 
+       this.peer.connections[peerId].length > 0){
+      for(var con in this.peer.connections[peerId]){
+        if(this.peer.connections[peerId][con].open){
+          dataConnection = this.peer.connections[peerId][con];
+          break;
+        }
+      }
+    }
+    return dataConnection;
+  };
+  
+  Wrtc.prototype._send = function(peerId, data){
+    var conn = this._getActiveConnection(peerId);
+    if(conn){
+      conn.send(data);
+      return true;
+    }
+    return false;
+  };
+  
+  Wrtc.prototype._findNearest = function(sha0, connections){
     var nearestPeerId;
-    var sha0 = Sha1.hash(peerId0);
+    var peerId;
     var kad0 = new BigInteger(sha0, 16);
     var sha1;
     var kad1, distance, min;
+    var initial = true;
     
-    nearestPeerId = this.peer.id;
-    sha1 = Sha1.hash(this.peer.id);
-    kad1 = new BigInteger(sha1, 16);
-    min = kad0.xor(kad1);
-    
-    for(peerId in this.peer.connections){
-      if(peerId0 === peerId){
+    for(var i in connections){
+      peerId = connections[i];
+      sha1 = Sha1.hash(peerId);
+      if(sha0 === sha1){
+        // exclude distance from itself
         continue;
       }
-      sha1 = Sha1.hash(peerId);
       kad1 = new BigInteger(sha1, 16);
       distance = kad0.xor(kad1);
+      if(initial){
+        initial = false;
+        // if we have not computed a probable min do so
+        min = kad0.xor(kad1);
+        // and assume this first one to be the nearest so far
+        nearestPeerId = peerId;
+        // fetch the next one
+        continue;
+      }
+      // return a positive number if "min" is bigger than "distance"
       if(min.compareTo(distance) > 0){
         min = distance;
         nearestPeerId = peerId;
       }
+      // fetch the next
     }
     
     return nearestPeerId;
+  };
+  
+  /*
+  Wrtc.prototype._isInBetween = function(peerId0){
+    //
+    var sha0 = Sha1.hash(peerId0);
+    var kad0 = new BigInteger(sha0, 16);
+    var sha1;
+    var kad1;
+    var smallerThan = false;
+    var biggerThan  = false;
+    
+    for(peerId in this.peer.connections){
+      sha1 = Sha1.hash(peerId);
+      kad1 = new BigInteger(sha1, 16);
+      if(kad0.compareTo(kad1) > 0){
+        // the new peerId is bigger
+        biggerThan = true;
+      } else if(kad0.compareTo(kad1) < 0){
+        // the new peerId is smaller
+        smallerThan = true;
+      }
+    }
+    return smallerThan && biggerThan;
+  };
+  */
+  
+  Wrtc.prototype._compareTo = function(peerId0, peerId1){
+    /*
+     * Compare peerId0 to peerId1
+     * Return + if peerId0 > than peerId1
+     * Return - if peerId0 < than peerId1
+     * Return 0 if they are equal
+     */
+    var kad0 = new BigInteger(Sha1.hash(peerId0), 16);
+    var kad1 = new BigInteger(Sha1.hash(peerId1), 16);
+    
+    return kad0.compareTo(kad1);
+  };
+  
+  Wrtc.prototype.generateKey = function(obj){
+    var strObj = JSON.stringify(obj);
+    var salt = this.peer.id;
+    var str = salt + strObj;
+    var key = Sha1.hash(str);
+    return key;
+  };
+  
+  Wrtc.prototype._storeLocally = function(key, value){
+    console.log('this node is storing key ' + key);
+    console.log(value);
+    localStorage.setItem(key, JSON.stringify(value));
+  };
+  
+  Wrtc.prototype._getLocally = function(key){
+    return JSON.parse(localStorage.getItem(key));
   };
 
 
@@ -190,7 +415,7 @@
 
     $("#connectToPeer").click(function(){
       peerId = $("#peerId").val();
-      wrtc.connect(peerId);
+      wrtc.createConnection(peerId);
     });
 
     // sendPing
@@ -203,6 +428,23 @@
         wrtc.ping();
       }, 3000);
       */
+    });
+    $("#store").click(function(){
+      var value = $("#data").val();
+      var obj = {
+        name: value,
+        hello: 'world'
+      };
+      var key = wrtc.generateKey(obj);
+      wrtc.store(key, obj);
+    });
+    $('#findKey').click(function(){
+      //
+      var key = $('#key').val();
+      wrtc.get(key, function(data){
+        console.log('we\'ve got the key value pair');
+        console.log(data.value);
+      });
     });
   });
 </script>

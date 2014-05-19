@@ -189,7 +189,7 @@ KWRouter.prototype.getNearestForStorage = function (kadId){
 
 // Global communication object.
 var KWComm = function(){
-    this.peer = new Peer({ key: 'lwjd5qra8257b9', debug: 2 });
+    this.peer = new Peer({ key: 'lwjd5qra8257b9', debug: 3 });
     this.localhost = null;
     this.buckets = null;
     this.initialized = false;
@@ -265,29 +265,6 @@ KWComm.prototype.storeKey = function(data){
 
 KWComm.prototype.ping = function(){};
 
-KWComm.prototype.receiveMessage = function(data, route){
-    //Receive data.
-    var peerId = route.peerId;
-    // console.log('data received from ' + peerId);
-    // console.log(data);
-    var message = data.message;
-    var response;
-    switch(message){
-        case 'REQ find node':
-            response = this.findNodeResponse(route);
-            route.dataConnection.send(response);
-            break;
-        case 'REQ find key':
-            break;
-        case 'REQ store key':
-            break;
-        case 'REQ ping':
-            this.buckets.addToBucket(this.buckets.getBucketNumber(route.kadId), route);
-            route.dataConnection.close();
-            break;
-    }
-};
-
 KWComm.prototype.connectToPeer = function(peerId){
     // we first check if this peer is already on the collection of known routes.
     
@@ -295,18 +272,18 @@ KWComm.prototype.connectToPeer = function(peerId){
     var dataConnection = this.peer.connect(peerId);
     var instance = this;
     dataConnection.on('open', function(){
-        dataConnection.on('data', function(message){
-            var body = message.body;
-            if(body.found === true){
+        // this refers to the dataConnection
+        this.on('data', function(message){
+            if(message.body.found === true){
                 // change id this one is taken
                 console.log('This id is taken');
             }else{
                 console.log('This id is fine');
             }
-            console.log(body.network);
+            console.log(message.body.network);
             // now we have to add this snapshot to our buckets.
-            instance.buckets.updateNetwork(body.network);
-            dataConnection.close();
+            instance.buckets.updateNetwork(message.body.network);
+            this.close();
         });
         // on success create the route and add it to the corresponding bucket
         var route = new KWRoute(
@@ -321,12 +298,13 @@ KWComm.prototype.connectToPeer = function(peerId){
         // send a find node message
         var ts = new Date();
         var timestamp = ts.toUTCString();
-        dataConnection.send({
+        this.send({
             message: 'REQ find node',
             body: instance.localhost.peerId,
             timestamp: timestamp
         });
     });
+    dataConnection = null;
     // if it exists, do nothing.
     
 };
@@ -336,15 +314,51 @@ KWComm.prototype.receiveConnection = function(dataConnection){
     var instance = this;
     dataConnection.on('data', function(data){
         // listen to the data received and act accordingly
-        var peerId = dataConnection.peer;
+        var peerId = this.peer;
         var route = new KWRoute(
-            dataConnection,
+            this,
             peerId,
             new BigInteger(Sha1.hash(peerId), 16),
             new Date()
         );
         instance.receiveMessage(data, route);
     });
+    dataConnection = null;
+};
+
+KWComm.prototype.receiveMessage = function(data, route){
+    //Receive data.
+    var peerId = route.peerId;
+    // console.log('data received from ' + peerId);
+    // console.log(data);
+    var message = data.message;
+    var response;
+    switch(message){
+        case 'REQ find node':
+            response = this.findNodeResponse(route);
+            route.dataConnection.send(response);
+            // schedule a cleanup
+            route.dataConnection.on('disconnect', function(){
+                this = null;
+            });
+            break;
+        case 'REQ find key':
+            break;
+        case 'REQ store key':
+            break;
+        case 'REQ ping':
+            this.buckets.addToBucket(this.buckets.getBucketNumber(route.kadId), route);
+            route.dataConnection.close();
+            route.datConnection = null;
+            break;
+    }
+    peerId = null;
+    message = null;
+    response = null;
+    route.lasSeen = null;
+    route.kadId = null;
+    route.peerId = null;
+    data = null;
 };
 
 KWComm.prototype.sendPing = function(instance){
