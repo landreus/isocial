@@ -3,7 +3,7 @@ var Wrtc = function(){
   this.callStack = [];
 
   this.peer.on('open', function(peerId){
-    console.log(peerId);
+    console.log("The id of this peer is : " + peerId);
   });
 
   var instance = this;
