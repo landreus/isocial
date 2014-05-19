@@ -1,0 +1,73 @@
+<html>
+<head>
+  <script type="text/javascript" src="lib/jquery-1.11.0.js"></script>
+  <script type="text/javascript" src="lib/peer.js"></script>
+  <script type="text/javascript" src="lib/jsbn.js"></script>
+  <script type="text/javascript" src="lib/jsbn2.js"></script>
+  <script type="text/javascript" src="lib/sha1.js"></script>
+  <script type="text/javascript" src="kwrtc.js"></script>
+</head>
+
+<body>
+
+<div>
+  Enter peer Id <input type="text" id="peerId" />
+  <input type="button" id="connectToPeer" value="Connect to peer" size="25"/>
+  <input type="button" id="sendPing" value="Send ping"/>
+</div>
+
+  <div>
+  Store data <input type="text" id="data" size="55"/>
+  <input type="button" id="store" value="Store"/>
+</div>
+<div>
+  Enter key <input type="text" id="key" size="55"/>
+  <input type="button" id="findKey" value="Find key"/>
+</div>
+  
+<div id="data"></div>
+
+<script type="text/javascript">
+
+  $(document).ready(function(){
+    wrtc = new Wrtc();
+    var peerId;
+
+    $("#connectToPeer").click(function(){
+      peerId = $("#peerId").val();
+      wrtc.createConnection(peerId);
+    });
+
+    // sendPing
+    $("#sendPing").click(function(){
+      
+      //console.log('commence pinging...');
+      wrtc.ping();
+      /*
+      var interval = setInterval(function(){
+        wrtc.ping();
+      }, 3000);
+      */
+    });
+    $("#store").click(function(){
+      var value = $("#data").val();
+      var obj = {
+        name: value,
+        hello: 'world'
+      };
+      var key = wrtc.generateKey(obj);
+      console.log(key);
+      wrtc.store(key, obj);
+    });
+    $('#findKey').click(function(){
+      //
+      var key = $('#key').val();
+      wrtc.get(key, function(data){
+        console.log('we\'ve got the key value pair');
+        console.log(data.value);
+      });
+    });
+  });
+</script>
+</body>
+</html>
