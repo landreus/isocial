@@ -30,8 +30,9 @@
   
 <div id="data"></div>
 
+</body>
 <script type="text/javascript">
-
+  var wrtc;
   $(document).ready(function(){
     wrtc = new Wrtc();
     var peerId;
@@ -60,7 +61,7 @@
       };
       var key = wrtc.generateKey(obj);
       console.log(key);
-      wrtc.store(key, obj);
+      wrtc.put(key, obj);
     });
     $('#findKey').click(function(){
       //
@@ -72,5 +73,4 @@
     });
   });
 </script>
-</body>
 </html>
