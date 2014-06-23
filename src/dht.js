@@ -75,26 +75,6 @@ DHT.prototype._onDataReceived = function(data){
   }
 };
 
-DHT.prototype._onDisconnect = function(peer){
-  // here we will reconnect to the closest peer connected to the lost one
-  // following the direction always, either greater or lower than this peer's id
-  var routes = router.getRoutesOf(peer);
-  if(arithmetic.lessThan(this.peer.id, peer)){
-    // check only routes that have an id lower that this peer
-    routes = arithmetic.filterLowerThan(routes);
-  } else if(arithmetic.greaterThan(this.peer.id, peer)){
-    // check only routes that have an id greater that this peer
-    routes = arithmetic.filterGreaterThan(routes);
-  }
-  var connections = router.myConnections();
-  var nearest = arithmetic.findNearest(routes);
-  if(connections.indexOf(nearest) === -1){
-    this._connect(nearest);
-    this._unicastROUTES(nearest, connections);
-    this._multicastNEW(connections, nearest);
-  }
-};
-
 /* Protocol events */
 
 DHT.prototype._onJoin = function(message){
@@ -138,6 +118,26 @@ DHT.prototype._onNew = function(message){
       this._connect(message.newPeer);
       this._unicastROUTES(message.peer, connections);
     }
+  }
+};
+
+DHT.prototype._onDisconnect = function(peer){
+  // here we will reconnect to the closest peer connected to the lost one
+  // following the direction always, either greater or lower than this peer's id
+  var routes = router.getRoutesOf(peer);
+  if(arithmetic.lessThan(this.peer.id, peer)){
+    // check only routes that have an id lower that this peer
+    routes = arithmetic.filterLowerThan(routes);
+  } else if(arithmetic.greaterThan(this.peer.id, peer)){
+    // check only routes that have an id greater that this peer
+    routes = arithmetic.filterGreaterThan(routes);
+  }
+  var connections = router.myConnections();
+  var nearest = arithmetic.findNearest(routes);
+  if(connections.indexOf(nearest) === -1){
+    this._connect(nearest);
+    this._unicastROUTES(nearest, connections);
+    this._multicastNEW(connections, nearest);
   }
 };
 
