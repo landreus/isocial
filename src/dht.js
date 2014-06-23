@@ -14,13 +14,13 @@ var DHT = function(){
 };
 
 DHT.prototype._protocols = {
-  JOIN: 'JOIN',
-  NEW: 'NEW',
+    JOIN: 'JOIN',
+     NEW: 'NEW',
   ROUTES: 'ROUTES',
-  PING: 'PING',
-  GET: 'GET',
-  PUT: 'PUT',
-  PASS: 'PASS',
+    PING: 'PING',
+     GET: 'GET',
+     PUT: 'PUT',
+    PASS: 'PASS',
 };
 
 DHT.prototype._initialize = function (){
@@ -127,10 +127,10 @@ DHT.prototype._onDisconnect = function(peer){
   var routes = router.getRoutesOf(peer);
   if(arithmetic.lessThan(this.peer.id, peer)){
     // check only routes that have an id lower that this peer
-    routes = arithmetic.filterLowerThan(routes);
+    routes = arithmetic.filterLowerThan(routes, peer);
   } else if(arithmetic.greaterThan(this.peer.id, peer)){
     // check only routes that have an id greater that this peer
-    routes = arithmetic.filterGreaterThan(routes);
+    routes = arithmetic.filterGreaterThan(routes, peer);
   }
   var connections = router.myConnections();
   var nearest = arithmetic.findNearest(routes);
