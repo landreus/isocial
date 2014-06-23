@@ -13,16 +13,46 @@ var Wrtc = function(){
 
   this.peer.on('connection', function(dataConnection){
     console.log('---> incoming connection from ' + dataConnection.peer);
+	var connections = instance._getActiveConnections();
     // we forgot to check here if this new connection is generating a bridge
     //    ---------- xn-1
     //    |            |
     //    |            |
     //    x0<--xn<------
     instance._configureDataConnection(dataConnection);
-    instance._createBridge(instance._getActiveConnections(), dataConnection.peer);
+    instance._createBridge(connections, dataConnection.peer);
+	// send to this new peer the ids of the neighbors after two seconds
+    instance._scheduleSendActiveConnections(dataConnection.peer, 2000);
     instance._redistributeKeys(this.peer);
   });
 
+};
+Wrtc.prototype._scheduleSendActiveConnections = function(peerId, timeout){
+  var instance = this;
+  setTimeout(function(){
+    instance._sendActiveConnections(peerId);
+  }, timeout);
+};
+/*
+ * Send the id of every node connected to this peer
+ * except for the node connected to this one
+ */
+Wrtc.prototype._sendActiveConnections = function(peerId){
+  var routes = this._getActiveConnections();
+  // remove the peerId (the node receiving the routing table)
+  // from the list of identifiers
+  var index = routes.indexOf(peerId);
+  if(index > -1){
+    routes.splice(index, 1);
+  }
+  // Build the message
+  var message = {
+    protocol: this.protocol.ROUTING_TABLE,
+    peer: this.peer.id,
+    routes: routes
+  };
+  // Send the message
+  this._send(peerId, message);
 };
 
 Wrtc.prototype._parseStorage = function(){
@@ -57,6 +87,8 @@ Wrtc.prototype._removeKey = function(key){
 };
 
 Wrtc.prototype._redistributeKeys = function(peerId){
+  // check if this is done poperly 
+  // replicate with neighbors
   var keys = this._getKeys();
   var message = {
     protocol: Wrtc.protocols.STORE,
@@ -80,7 +112,8 @@ Wrtc.protocols = {
   STORE: 'store',
   FIND_KEY_REQ: 'find key request',
   FIND_KEY_RES: 'find key response',
-  FIND_NODE: 'find node'
+  FIND_NODE: 'find node',
+  ROUTING_TABLE: 'routing table'
 };
 
 Wrtc.prototype.createConnection = function(peerId, active){
