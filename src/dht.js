@@ -40,6 +40,9 @@ DHT.prototype._onPeerCreated = function(peerId) {
 DHT.prototype._onConnectionReceived = function (dataConnection){
   dataConnection.on('data', this._onDataReceived);
   // replication.redistributeKeys();
+  dataConnection.on('close', function(){
+    this._onDisconnect(dataConnection.peer);
+  });
   this._multicastROUTES();
 };
 
@@ -72,6 +75,26 @@ DHT.prototype._onDataReceived = function(data){
   }
 };
 
+DHT.prototype._onDisconnect = function(peer){
+  // here we will reconnect to the closest peer connected to the lost one
+  // following the direction always, either greater or lower than this peer's id
+  var routes = router.getRoutesOf(peer);
+  if(arithmetic.lessThan(this.peer.id, peer)){
+    // check only routes that have an id lower that this peer
+    routes = arithmetic.filterLowerThan(routes);
+  } else if(arithmetic.greaterThan(this.peer.id, peer)){
+    // check only routes that have an id greater that this peer
+    routes = arithmetic.filterGreaterThan(routes);
+  }
+  var connections = router.myConnections();
+  var nearest = arithmetic.findNearest(routes);
+  if(connections.indexOf(nearest) === -1){
+    this._connect(nearest);
+    this._unicastROUTES(nearest, connections);
+    this._multicastNEW(connections, nearest);
+  }
+};
+
 /* Protocol events */
 
 DHT.prototype._onJoin = function(message){
@@ -93,6 +116,8 @@ DHT.prototype._onJoin = function(message){
 DHT.prototype._onNew = function(message){
   var newPeer = message.newPeer;
   var sourcePeer = message.peer;
+  router.updateRoutes(sourcePeer, newPeer); // update the router with the new connection
+  // check if this peer should also connect to the new one
   if(
       (
         arithmetic.lessThan(this.peer.id, newPeer)
@@ -172,7 +197,7 @@ DHT.prototype._unicast = function(peer, message){
   this._send(peer, message);
 };
 
-/* Low-level transmission tasks */
+/* Low-level transmission/communication tasks */
 
 DHT.prototype._connect = function(peer){
   // check that the peer is not connected
