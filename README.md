@@ -19,7 +19,3 @@ Additional recommended libraries:
 This is working progress and it whereas it is possible to use store and get operations, the final version is far from being finished.
 
 Please note that the example (test.html) is using the public key to test the signaling server from peer.js.
-
-Credit goes to Andres Ledesma and Mikael Hogqvist.
-
-Read the licence for furhter information.
